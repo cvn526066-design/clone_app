@@ -24,6 +24,7 @@ dependencies:
   particles_flutter: ^1.0.0
   dotted_border: ^2.1.0
   shimmer: ^3.0.0
+  permission_handler: ^11.3.1 # عشان نطلب الأذونات
 
 dev_dependencies:
   flutter_test:
@@ -32,4 +33,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  socket_io_client: ^3.0.2
