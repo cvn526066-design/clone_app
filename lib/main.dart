@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-// import 'package:particles_flutter/particles_flutter.dart'; // سنستخدم خلفية بسيطة حالياً
 
 void main() {
   runApp(const MyApp());
@@ -52,9 +51,12 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     setState(() {
       isBotRunning = !isBotRunning;
     });
-    Fluttertoast.showToast(
-      msg: isBotRunning ? "تم تشغيل البوت!" : "تم إيقاف البوت!",
-      backgroundColor: isBotRunning ? Colors.green : Colors.red,
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(isBotRunning ? "تم تشغيل البوت!" : "تم إيقاف البوت!"),
+        backgroundColor: isBotRunning ? Colors.green : Colors.red,
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 
@@ -63,7 +65,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // خلفية بسيطة (مكان Starfield)
           Container(
             decoration: const BoxDecoration(
               gradient: RadialGradient(
@@ -78,7 +79,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  // الشريط العلوي
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -88,8 +88,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  
-                  // أزرار الحساب
                   Container(
                     decoration: BoxDecoration(
                       color: const Color(0xFF0E0E14),
@@ -135,8 +133,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  
-                  // الأزرار الرئيسية
                   ElevatedButton(
                     onPressed: toggleBot,
                     style: ElevatedButton.styleFrom(
