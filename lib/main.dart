@@ -46,7 +46,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+      // 323. الـ User-Agent الصح (تطبيق Quotex)
+      ..setUserAgent("Quotex/1.0")
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (msg) async {
