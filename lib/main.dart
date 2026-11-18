@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 // import 'package:particles_flutter/particles_flutter.dart'; // سنستخدم خلفية بسيطة حالياً
-import 'package:fluttertoast/fluttertoast.dart';
+import 'package:another_flushbar/another_flushbar.dart';
 
 void main() {
   runApp(const MyApp());
