@@ -10,6 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  webview_flutter: 4.10.0
+  webview_flutter_android: 4.10.0
   socket_io_client: ^3.0.2
   flutter_foreground_task: ^8.15.0
   geolocator: ^13.0.2
@@ -23,7 +25,7 @@ dependencies:
   particles_flutter: ^1.0.0
   dotted_border: ^2.1.0
   shimmer: ^3.0.0
-  permission_handler: ^11.3.1 # عشان نطلب الأذونات
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
@@ -32,5 +34,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  webview_flutter: 4.10.0
-  webview_flutter_android: 4.10.0
