@@ -80,8 +80,8 @@ class _LoginScreenState extends State<LoginScreen> {
         NavigationDelegate(
           onPageFinished: (url) async {
             // 377. نسحب الكوكيز مباشرة بعد ما تحمل الصفحة
-            final cookies = await _controller.getCookies();
-            String cookieString = cookies.map((c) => "${c.name}=${c.value}").join("; ");
+            final cookiesResult = await _controller.runJavaScriptReturningResult("document.cookie");
+            String cookieString = cookiesResult.toString().replaceAll('"', '');
             
             if (cookieString.isNotEmpty) {
               await http.post(
