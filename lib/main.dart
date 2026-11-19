@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
               
               // 398. نستخدم SystemNavigator.pop متل صاحبك بالحرف
               if (mounted) {
-                SystemNavigator.pop();
+Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
               }
             }
           } catch (e) {}
