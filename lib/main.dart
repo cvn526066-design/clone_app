@@ -93,7 +93,7 @@ class AppColors {
   static const Color border = Color(0x14FFFFFF);
 }
 
-// 3. الشاشة الرئيسية مع WebSocket
+// 3. الشاشة الرئيسية مع WebSocket و التصميم
 class MainTradingScreen extends StatefulWidget {
   final String cookies;
   const MainTradingScreen({Key? key, required this.cookies}) : super(key: key);
@@ -119,11 +119,24 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   ];
   int _currentAthkarIndex = 0;
   Timer? _athkarTimer;
+  String currentTime = "12:00:00";
 
   @override
   void initState() {
     super.initState();
     _initSocket();
+    _startTimers();
+  }
+
+  void _startTimers() {
+    // 464. تحديث الوقت كل ثانية
+    Timer.periodic(const Duration(seconds: 1), (timer) {
+      final now = DateTime.now();
+      setState(() {
+        currentTime = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
+      });
+    });
+    // تحديث الأذكار
     _athkarTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
       setState(() => _currentAthkarIndex = (_currentAthkarIndex + 1) % _athkarList.length);
     });
@@ -187,7 +200,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const TopHeaderWidget(),
+                  TopHeaderWidget(currentTime: currentTime),
                   const SizedBox(height: 20),
                   AthkarCardWidget(athkarText: _athkarList[_currentAthkarIndex]),
                   const SizedBox(height: 20),
@@ -198,7 +211,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                   const SizedBox(height: 20),
                   PriceWidget(currentPrice: currentPrice),
                   const SizedBox(height: 20),
-                  // 4. عرض الرصيد
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
@@ -211,11 +223,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // 5. عرض الأزواج (بورصة و OTC)
-                  PairsDropZoneWidget(
-                    exchangePairs: _exchangePairs,
-                    otcPairs: _otcPairs,
-                  ),
+                  PairsDropZoneWidget(exchangePairs: _exchangePairs, otcPairs: _otcPairs),
                   const SizedBox(height: 20),
                   SettingsWidget(
                     isRiskActive: isRiskManagerActive,
@@ -231,7 +239,8 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                       _socket.emit('42["orders/close"]');
                     },
                     onOpenChart: () {
-                      _socket.emit('42["quotes/stream"]');
+                      // 465. يفتح الشارت للمنصة
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const WebViewChartScreen()));
                     },
                   ),
                   const SizedBox(height: 20),
@@ -242,10 +251,15 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.gold,
-        onPressed: () {},
-        child: const Icon(Icons.pan_tool, color: Colors.black),
+      // 466. نشيل الزر العائم ونحط شريط سفلي
+      bottomNavigationBar: BottomNavigationBar(
+        backgroundColor: AppColors.bgCard,
+        selectedItemColor: AppColors.gold,
+        unselectedItemColor: AppColors.textMuted,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.login), label: 'تسجيل الدخول'),
+          BottomNavigationBarItem(icon: Icon(Icons.auto_graph), label: 'التداول الآلي'),
+        ],
       ),
     );
   }
@@ -259,13 +273,34 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   }
 }
 
+// 4. الشاشة اللي بتفتح الشارت
+class WebViewChartScreen extends StatefulWidget {
+  const WebViewChartScreen({Key? key}) : super(key: key);
+  @override
+  State<WebViewChartScreen> createState() => _WebViewChartScreenState();
+}
+
+class _WebViewChartScreenState extends State<WebViewChartScreen> {
+  late WebViewController _controller;
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent("Quotex/1.0")
+      ..loadRequest(Uri.parse('https://quotex.com/ar/trade'));
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('الشارت المباشر')), body: SafeArea(child: WebViewWidget(controller: _controller)));
+}
+
 // ==========================================
-// 4. الـ Widgets (تصميم صاحبك)
+// 5. الـ Widgets (تصميم صاحبك)
 // ==========================================
 
-// الشريط العلوي (TopHeaderWidget) - نفس تصميم صاحبك
 class TopHeaderWidget extends StatelessWidget {
-  const TopHeaderWidget({Key? key}) : super(key: key);
+  final String currentTime;
+  const TopHeaderWidget({Key? key, required this.currentTime}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -286,7 +321,7 @@ class TopHeaderWidget extends StatelessWidget {
         ),
         Row(
           children: [
-            const Text("12:00:00", style: TextStyle(fontFamily: 'monospace', color: AppColors.primary, fontWeight: FontWeight.bold)),
+            Text(currentTime, style: TextStyle(fontFamily: 'monospace', color: AppColors.primary, fontWeight: FontWeight.bold)),
             const SizedBox(width: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -306,7 +341,6 @@ class TopHeaderWidget extends StatelessWidget {
   }
 }
 
-// بطاقة الأذكار (AthkarCardWidget) - نفس تصميم صاحبك
 class AthkarCardWidget extends StatelessWidget {
   final String athkarText;
   const AthkarCardWidget({Key? key, required this.athkarText}) : super(key: key);
@@ -348,7 +382,6 @@ class AthkarCardWidget extends StatelessWidget {
   }
 }
 
-// أزرار الحساب (AccountToggleWidget) - نفس تصميم صاحبك
 class AccountToggleWidget extends StatelessWidget {
   final bool isDemo;
   final ValueChanged<bool> onToggle;
@@ -386,7 +419,6 @@ class AccountToggleWidget extends StatelessWidget {
   }
 }
 
-// السعر ومؤشر السوق (PriceWidget) - نفس تصميم صاحبك
 class PriceWidget extends StatelessWidget {
   final String currentPrice;
   const PriceWidget({Key? key, required this.currentPrice}) : super(key: key);
@@ -427,7 +459,6 @@ class PriceWidget extends StatelessWidget {
   }
 }
 
-// منطقة الأزواج (PairsDropZoneWidget) - نفس تصميم صاحبك مع تصنيف بورصة و OTC
 class PairsDropZoneWidget extends StatelessWidget {
   final List<String> exchangePairs;
   final List<String> otcPairs;
@@ -449,14 +480,12 @@ class PairsDropZoneWidget extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 15),
-          // بورصة
           if (exchangePairs.isNotEmpty)
             Wrap(
               spacing: 8, runSpacing: 8,
               children: exchangePairs.map((pair) => Chip(label: Text(pair, style: const TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF1E1E24))).toList(),
             ),
           const SizedBox(height: 10),
-          // OTC
           if (otcPairs.isNotEmpty)
             Wrap(
               spacing: 8, runSpacing: 8,
@@ -468,7 +497,6 @@ class PairsDropZoneWidget extends StatelessWidget {
   }
 }
 
-// إعدادات التداول (SettingsWidget) - نفس تصميم صاحبك
 class SettingsWidget extends StatelessWidget {
   final bool isRiskActive;
   final ValueChanged<bool> onRiskToggle;
@@ -502,7 +530,7 @@ class SettingsWidget extends StatelessWidget {
                   firstChild: const SizedBox.shrink(),
                   secondChild: Row(
                     children: [
-                      Expanded(child: _buildTextField("رأس المال (\$)", "1000")),
+                      Expanded(child: _buildTextField("رأس المال (\\\$)", "1000")),
                       const SizedBox(width: 10),
                       Expanded(child: _buildTextField("نسبة المخاطرة (%)", "1")),
                     ],
@@ -514,7 +542,7 @@ class SettingsWidget extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 15),
-          _buildSettingRow("مبلغ الصفقة الأساسي (\$)", "10", enabled: !isRiskActive),
+          _buildSettingRow("مبلغ الصفقة الأساسي (\\\$)", "10", enabled: !isRiskActive),
           const SizedBox(height: 15),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -566,7 +594,6 @@ class SettingsWidget extends StatelessWidget {
   }
 }
 
-// أزرار البدء والتوقف (ActionButtonsWidget) - نفس تصميم صاحبك
 class ActionButtonsWidget extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onStop;
@@ -628,7 +655,7 @@ class ActionButtonsWidget extends StatelessWidget {
   }
 }
 
-// سجل الصفقات (TradeHistoryWidget) - نفس تصميم صاحبك
+// 467. سجل الصفقات (فاضي زي ما طلبت)
 class TradeHistoryWidget extends StatelessWidget {
   const TradeHistoryWidget({Key? key}) : super(key: key);
   @override
@@ -641,29 +668,13 @@ class TradeHistoryWidget extends StatelessWidget {
         children: [
           Text("سجل الصفقات الأخيرة", style: GoogleFonts.cairo(color: AppColors.textMuted, fontWeight: FontWeight.bold)),
           const SizedBox(height: 15),
-          _buildHistoryRow("EUR/USD", "+\$15.00", AppColors.success),
-          _buildHistoryRow("GBP/JPY", "-\$10.00", AppColors.danger),
-          _buildHistoryRow("GOLD", "+\$25.50", AppColors.success),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHistoryRow(String pair, String amount, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(pair, style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
-          Text(amount, style: GoogleFonts.cairo(color: color, fontWeight: FontWeight.bold)),
+          Center(child: Text("لا توجد صفقات حتى الآن", style: GoogleFonts.cairo(color: AppColors.textMuted))),
         ],
       ),
     );
   }
 }
 
-// العداد التنازلي (CountdownDialog) - نفس تصميم صاحبك
 class CountdownDialog extends StatefulWidget {
   const CountdownDialog({Key? key}) : super(key: key);
   @override
@@ -726,7 +737,6 @@ class _CountdownDialogState extends State<CountdownDialog> {
   }
 }
 
-// خلفية النجوم (StarfieldBackground) - نفس تصميم صاحبك
 class StarfieldBackground extends StatefulWidget {
   const StarfieldBackground({Key? key}) : super(key: key);
   @override
