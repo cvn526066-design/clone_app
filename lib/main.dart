@@ -479,7 +479,7 @@ class SettingsWidget extends StatelessWidget {
                   firstChild: const SizedBox.shrink(),
                   secondChild: Row(
                     children: [
-                      Expanded(child: _buildTextField("رأس المال ($)", "1000")),
+                      Expanded(child: _buildTextField("رأس المال (\$)", "1000")),
                       const SizedBox(width: 10),
                       Expanded(child: _buildTextField("نسبة المخاطرة (%)", "1")),
                     ],
@@ -491,7 +491,7 @@ class SettingsWidget extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 15),
-          _buildSettingRow("مبلغ الصفقة الأساسي ($)", "10", enabled: !isRiskActive),
+          _buildSettingRow("مبلغ الصفقة الأساسي (\$)", "10", enabled: !isRiskActive),
           const SizedBox(height: 15),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
