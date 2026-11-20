@@ -5,7 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'dart:convert';
 
 void main() => runApp(const MyApp());
 
@@ -44,7 +43,7 @@ class RootNavigation extends StatefulWidget {
 
 class _RootNavigationState extends State<RootNavigation> {
   int _currentIndex = 0;
-  String _cookies = ""; // 483. متغير لحفظ الكوكيز
+  String _cookies = "";
 
   @override
   Widget build(BuildContext context) {
@@ -53,10 +52,10 @@ class _RootNavigationState extends State<RootNavigation> {
           ? LoginScreen(onCookiesReady: (cookies) {
               setState(() {
                 _cookies = cookies;
-                _currentIndex = 1; // ننقل لصفحة التداول
+                _currentIndex = 1;
               });
             }) 
-          : MainTradingScreen(cookies: _cookies), // نمرر الكوكيز
+          : MainTradingScreen(cookies: _cookies),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: const Color(0xFF0E0E14),
         selectedItemColor: const Color(0xFFFFD700),
@@ -97,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
           onUrlChange: (UrlChange urlChange) async {
             if (urlChange.url?.contains('/trade') == true || urlChange.url?.contains('/cabinet') == true) {
               final cookies = await _controller.runJavaScriptReturningResult("document.cookie");
-              widget.onCookiesReady(cookies.toString()); // 484. نرسل الكوكيز
+              widget.onCookiesReady(cookies.toString());
             }
           },
         ),
@@ -115,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ==========================================
-// 3. الثيم العام والألوان (نفس تصميم صاحبك)
+// 3. الثيم العام والألوان
 // ==========================================
 class AppColors {
   static const Color bgMain = Color(0xFF030305);
@@ -130,7 +129,7 @@ class AppColors {
 }
 
 // ==========================================
-// 4. الشاشة الرئيسية (MainTradingScreen) كاملة
+// 4. الشاشة الرئيسية (MainTradingScreen)
 // ==========================================
 class MainTradingScreen extends StatefulWidget {
   final String cookies;
@@ -145,7 +144,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   double realBalance = 0.0;
   bool isDemoAccount = true;
   bool isRiskManagerActive = false;
-  bool isConnected = false; // 485. متغير الاتصال
+  bool isConnected = false;
   late IO.Socket _socket;
   
   List<String> _exchangePairs = [];
@@ -179,14 +178,23 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
+  // 490. استخراج التوكن وتمريره في الهيدر (نفس صاحبك)
   void _initSocket() {
-    // 486. نمرر الكوكيز بشكل صحيح
+    // نفترض إنه الكوكيز فيها qtx_session_cookie، بنستخرج قيمته
+    String token = "";
+    final match = RegExp(r'qtx_session_cookie=([^;]+)').firstMatch(widget.cookies);
+    if (match != null) token = match.group(1) ?? "";
+
     _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
       'path': '/socket.io/',
       'query': {'EIO': '4', 'transport': 'websocket'},
-      'extraHeaders': {'Cookie': widget.cookies, 'User-Agent': 'Quotex/1.0'}
+      'extraHeaders': {
+        'Cookie': widget.cookies,
+        'User-Agent': 'Quotex/1.0',
+        'Authorization': 'Bearer $token', // 491. نمرر التوكن
+      }
     });
 
     _socket.onConnect((_) {
@@ -306,7 +314,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
 }
 
 // ==========================================
-// 5. الشاشة اللي بتفتح الشارت
+// 5. شاشة الشارت
 // ==========================================
 class ChartScreen extends StatefulWidget {
   final bool isDemo;
@@ -360,7 +368,6 @@ class TopHeaderWidget extends StatelessWidget {
           children: [
             Text(currentTime, style: TextStyle(fontFamily: 'monospace', color: AppColors.primary, fontWeight: FontWeight.bold)),
             const SizedBox(width: 10),
-            // 487. زر الاتصال
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
