@@ -27,16 +27,112 @@ class MyApp extends StatelessWidget {
           error: Color(0xFFFF1744),
         ),
       ),
-      home: const MainTradingScreen(),
+      home: const RootNavigation(),
     );
   }
 }
 
 // ==========================================
-// 1. شاشة التداول (تفتح أول شي)
+// 1. الشريط السفلي (RootNavigation)
+// ==========================================
+class RootNavigation extends StatefulWidget {
+  const RootNavigation({super.key});
+  @override
+  State<RootNavigation> createState() => _RootNavigationState();
+}
+
+class _RootNavigationState extends State<RootNavigation> {
+  int _currentIndex = 0;
+  String _cookies = "";
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _currentIndex == 0 
+          ? LoginScreen(onCookiesReady: (cookies) {
+              setState(() {
+                _cookies = cookies;
+                _currentIndex = 1; 
+              });
+            }) 
+          : MainTradingScreen(cookies: _cookies),
+      bottomNavigationBar: BottomNavigationBar(
+        backgroundColor: const Color(0xFF0E0E14),
+        selectedItemColor: const Color(0xFFFFD700),
+        unselectedItemColor: const Color(0xFFA0A0B0),
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.login), label: 'تسجيل الدخول'),
+          BottomNavigationBarItem(icon: Icon(Icons.auto_graph), label: 'التداول الآلي'),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 2. شاشة تسجيل الدخول (WebView ظاهر)
+// ==========================================
+class LoginScreen extends StatefulWidget {
+  final Function(String) onCookiesReady;
+  const LoginScreen({super.key, required this.onCookiesReady});
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  late WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent("Quotex/1.0")
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onUrlChange: (UrlChange urlChange) async {
+            if (urlChange.url?.contains('/trade') == true || urlChange.url?.contains('/cabinet') == true) {
+              final cookies = await _controller.runJavaScriptReturningResult("document.cookie");
+              widget.onCookiesReady(cookies.toString());
+            }
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
+  }
+
+  void _requestPermissions() async {
+    await Permission.location.request();
+    await Permission.notification.request();
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(child: WebViewWidget(controller: _controller));
+}
+
+// ==========================================
+// 3. الثيم العام والألوان
+// ==========================================
+class AppColors {
+  static const Color bgMain = Color(0xFF030305);
+  static const Color bgCard = Color(0xFF0E0E14);
+  static const Color primary = Color(0xFF00E5FF);
+  static const Color gold = Color(0xFFFFD700);
+  static const Color success = Color(0xFF00E676);
+  static const Color danger = Color(0xFFFF1744);
+  static const Color textMuted = Color(0xFFA0A0B0);
+  static const Color border = Color(0x14FFFFFF);
+}
+
+// ==========================================
+// 4. الشاشة الرئيسية
 // ==========================================
 class MainTradingScreen extends StatefulWidget {
-  const MainTradingScreen({super.key});
+  final String cookies;
+  const MainTradingScreen({Key? key, required this.cookies}) : super(key: key);
   @override
   State<MainTradingScreen> createState() => _MainTradingScreenState();
 }
@@ -49,18 +145,10 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   bool isDemoAccount = true;
   bool isRiskManagerActive = false;
   bool isConnected = false;
-  String selectedStrategy = "استراتيجية البريك بلوك";
   
   List<String> _exchangePairs = [];
   List<String> _otcPairs = [];
-  List<String> _filteredExchangePairs = [];
-  List<String> _filteredOtcPairs = [];
-  String _searchQuery = "";
-
-  // إعدادات البوت
-  int _maxWinStreak = 2;
-  int _maxLossStreak = 3;
-
+  
   final List<String> _athkarList = [
     "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ، سُبْحَانَ اللَّهِ الْعَظِيمِ",
     "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ",
@@ -89,6 +177,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
+  // 514. WebView مخفي يفتح بالكوكيز
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -103,8 +192,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
             setState(() {
               _exchangePairs = List<String>.from(data['exchange']);
               _otcPairs = List<String>.from(data['otc']);
-              _filterExchangePairs();
-              _filterOtcPairs();
             });
           } else if (data['type'] == 'balance') {
             setState(() => demoBalance = double.parse(data['balance'].toString()));
@@ -127,13 +214,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        // 504. نضيف البروكسي (هيدر تجريبي، ممكن تغيره ببروكسي حقيقي)
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
-          headers: {
-            'User-Agent': 'Quotex/1.0',
-            'X-Forwarded-For': '1.1.1.1' // بروكسي تجريبي
-          }
-        });
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
@@ -160,14 +241,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       })();
     """;
     _controller.runJavaScript(jsScript);
-  }
-
-  void _filterExchangePairs() {
-    _filteredExchangePairs = _exchangePairs.where((p) => p.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
-  }
-
-  void _filterOtcPairs() {
-    _filteredOtcPairs = _otcPairs.where((p) => p.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
   }
 
   @override
@@ -201,7 +274,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                   const SizedBox(height: 20),
                   PriceWidget(currentPrice: currentPrice),
                   const SizedBox(height: 20),
-                  // عرض الرصيد
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
@@ -214,56 +286,13 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // 505. البحث
-                  TextField(
-                    onChanged: (val) => setState(() { _searchQuery = val; _filterExchangePairs(); _filterOtcPairs(); }),
-                    decoration: InputDecoration(
-                      hintText: 'بحث عن زوج (مثل: EUR)...',
-                      hintStyle: GoogleFonts.cairo(color: AppColors.textMuted),
-                      prefixIcon: const Icon(Icons.search, color: AppColors.primary),
-                      filled: true, fillColor: AppColors.bgCard,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                    ),
-                  ),
+                  PairsDropZoneWidget(exchangePairs: _exchangePairs, otcPairs: _otcPairs),
                   const SizedBox(height: 20),
-                  // 506. الأزواج مفلترة
-                  PairsDropZoneWidget(
-                    exchangePairs: _filteredExchangePairs,
-                    otcPairs: _filteredOtcPairs,
-                  ),
-                  const SizedBox(height: 20),
-                  // 507. إعدادات البوت (المضاعفة ووقف الخسارة)
                   SettingsWidget(
                     isRiskActive: isRiskManagerActive,
                     onRiskToggle: (val) => setState(() => isRiskManagerActive = val),
-                    maxWinStreak: _maxWinStreak,
-                    maxLossStreak: _maxLossStreak,
-                    onWinChange: (val) => setState(() => _maxWinStreak = val),
-                    onLossChange: (val) => setState(() => _maxLossStreak = val),
                   ),
                   const SizedBox(height: 20),
-                  // 508. زر الاستراتيجيات
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.gold.withOpacity(0.5))),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('الاستراتيجية:', style: GoogleFonts.cairo(color: AppColors.textMuted)),
-                        DropdownButton<String>(
-                          value: selectedStrategy,
-                          dropdownColor: AppColors.bgCard,
-                          style: GoogleFonts.cairo(color: Colors.white),
-                          items: ['استراتيجية البريك بلوك', 'استراتيجية Golden Dollar', 'نسخ الصفقات'].map((String value) {
-                            return DropdownMenuItem<String>(value: value, child: Text(value));
-                          }).toList(),
-                          onChanged: (newValue) => setState(() => selectedStrategy = newValue!),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  // 509. أزرار البدء
                   ActionButtonsWidget(
                     onStart: () {
                       _controller.runJavaScript('window.__qtxSocket.send(\'42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]\')');
@@ -296,21 +325,32 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   }
 }
 
-// ==========================================
-// 2. باقي الـ Widgets (نفس تصميم صاحبك)
-// ==========================================
-class AppColors {
-  static const Color bgMain = Color(0xFF030305);
-  static const Color bgCard = Color(0xFF0E0E14);
-  static const Color primary = Color(0xFF00E5FF);
-  static const Color gold = Color(0xFFFFD700);
-  static const Color goldDark = Color(0xFFB8860B);
-  static const Color success = Color(0xFF00E676);
-  static const Color danger = Color(0xFFFF1744);
-  static const Color textMuted = Color(0xFFA0A0B0);
-  static const Color border = Color(0x14FFFFFF);
+// 5. شاشة الشارت
+class ChartScreen extends StatefulWidget {
+  final bool isDemo;
+  const ChartScreen({Key? key, required this.isDemo}) : super(key: key);
+  @override
+  State<ChartScreen> createState() => _ChartScreenState();
 }
 
+class _ChartScreenState extends State<ChartScreen> {
+  late WebViewController _controller;
+  @override
+  void initState() {
+    super.initState();
+    String url = widget.isDemo ? 'https://quotex.com/ar/demo-trade' : 'https://quotex.com/ar/trade';
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent("Quotex/1.0")
+      ..loadRequest(Uri.parse(url));
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('الشارت المباشر')), body: SafeArea(child: WebViewWidget(controller: _controller)));
+}
+
+// ==========================================
+// 6. الـ Widgets (نفس التصميم الكامل)
+// ==========================================
 class TopHeaderWidget extends StatelessWidget {
   final String currentTime;
   final bool isConnected;
@@ -497,23 +537,17 @@ class PairsDropZoneWidget extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 15),
-          // بورصة
-          if (exchangePairs.isNotEmpty) ...[
-            Text('بورصة:', style: GoogleFonts.cairo(color: AppColors.textMuted, fontSize: 12)),
+          if (exchangePairs.isNotEmpty)
             Wrap(
               spacing: 8, runSpacing: 8,
               children: exchangePairs.map((pair) => Chip(label: Text(pair, style: const TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF1E1E24))).toList(),
             ),
-            const SizedBox(height: 10),
-          ],
-          // OTC
-          if (otcPairs.isNotEmpty) ...[
-            Text('OTC:', style: GoogleFonts.cairo(color: AppColors.textMuted, fontSize: 12)),
+          const SizedBox(height: 10),
+          if (otcPairs.isNotEmpty)
             Wrap(
               spacing: 8, runSpacing: 8,
               children: otcPairs.map((pair) => Chip(label: Text(pair, style: const TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF1E1E24))).toList(),
             ),
-          ],
         ],
       ),
     );
@@ -523,21 +557,7 @@ class PairsDropZoneWidget extends StatelessWidget {
 class SettingsWidget extends StatelessWidget {
   final bool isRiskActive;
   final ValueChanged<bool> onRiskToggle;
-  final int maxWinStreak;
-  final int maxLossStreak;
-  final ValueChanged<int> onWinChange;
-  final ValueChanged<int> onLossChange;
-
-  const SettingsWidget({
-    Key? key,
-    required this.isRiskActive,
-    required this.onRiskToggle,
-    required this.maxWinStreak,
-    required this.maxLossStreak,
-    required this.onWinChange,
-    required this.onLossChange,
-  }) : super(key: key);
-
+  const SettingsWidget({Key? key, required this.isRiskActive, required this.onRiskToggle}) : super(key: key);
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -545,7 +565,6 @@ class SettingsWidget extends StatelessWidget {
       decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(20), border: Border.all(color: AppColors.border)),
       child: Column(
         children: [
-          // إدارة المخاطر
           Container(
             padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.primary.withOpacity(0.2))),
@@ -582,28 +601,25 @@ class SettingsWidget extends StatelessWidget {
           const SizedBox(height: 15),
           _buildSettingRow("مبلغ الصفقة الأساسي (\\\$)", "10", enabled: !isRiskActive),
           const SizedBox(height: 15),
-          // 510. إعدادات وقف الخسارة والربح
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("وقف الربح (عدد الصفقات)", style: GoogleFonts.cairo(color: AppColors.textMuted)),
-              SizedBox(width: 80, child: _buildTextField("", maxWinStreak.toString(), onChanged: (val) => onWinChange(int.tryParse(val) ?? 2))),
+              Text("نسبة المضاعفة (%)", style: GoogleFonts.cairo(color: AppColors.textMuted)),
+              Row(
+                children: [
+                  SizedBox(width: 60, child: _buildTextField("", "100")),
+                  const SizedBox(width: 10),
+                  Switch(value: true, onChanged: (v) {}),
+                ],
+              )
             ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("وقف الخسارة (عدد الصفقات)", style: GoogleFonts.cairo(color: AppColors.textMuted)),
-              SizedBox(width: 80, child: _buildTextField("", maxLossStreak.toString(), onChanged: (val) => onLossChange(int.tryParse(val) ?? 3))),
-            ],
-          ),
+          )
         ],
       ),
     );
   }
 
-  Widget _buildTextField(String label, String value, {bool enabled = true, Function(String)? onChanged}) {
+  Widget _buildTextField(String label, String value, {bool enabled = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -612,7 +628,6 @@ class SettingsWidget extends StatelessWidget {
         TextField(
           enabled: enabled,
           controller: TextEditingController(text: value),
-          onChanged: onChanged,
           style: GoogleFonts.cairo(color: enabled ? Colors.white : AppColors.textMuted),
           decoration: InputDecoration(
             filled: true, fillColor: Colors.black,
@@ -841,32 +856,4 @@ class StarPainter extends CustomPainter {
   }
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-// ==========================================
-// 512. شاشة الشارت (اللي كانت ناقصة)
-// ==========================================
-class ChartScreen extends StatefulWidget {
-  final bool isDemo;
-  const ChartScreen({Key? key, required this.isDemo}) : super(key: key);
-  @override
-  State<ChartScreen> createState() => _ChartScreenState();
-}
-
-class _ChartScreenState extends State<ChartScreen> {
-  late WebViewController _controller;
-  @override
-  void initState() {
-    super.initState();
-    String url = widget.isDemo ? 'https://quotex.com/ar/demo-trade' : 'https://quotex.com/ar/trade';
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Quotex/1.0")
-      ..loadRequest(Uri.parse(url));
-  }
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('الشارت المباشر'), backgroundColor: const Color(0xFF0E0E14)),
-    body: SafeArea(child: WebViewWidget(controller: _controller)),
-  );
 }
