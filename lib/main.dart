@@ -4,9 +4,27 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'dart:convert';
 
-void main() => runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // 527. تهيئة الخدمة الخلفية (نفس صاحبك)
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'foreground_service',
+      channelName: 'Foreground Service',
+      channelImportance: NotificationChannelImportance.LOW,
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.repeat(5000),
+      autoRunOnBoot: true,
+    ),
+  );
+  runApp(const MyApp());
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -107,6 +125,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _requestPermissions() async {
     await Permission.location.request();
     await Permission.notification.request();
+    await FlutterForegroundTask.requestIgnoreBatteryOptimization();
   }
 
   @override
@@ -177,7 +196,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 516. WebView مخفي يفتح بالكوكيز
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -189,7 +207,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
           if (data['type'] == 'connected') {
             setState(() => isConnected = true);
           } else if (data['type'] == 'disconnected') {
-            setState(() => isConnected = false); // لو انفصل الاتصال
+            setState(() => isConnected = false);
           } else if (data['type'] == 'pairs') {
             setState(() {
               _exchangePairs = List<String>.from(data['exchange']);
@@ -205,22 +223,22 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            _injectWebSocketScript(widget.cookies); // 517. نمرر الكوكيز
+            _injectWebSocketScript(widget.cookies);
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
   }
 
-  // 518. نحقن سكربت WebSocket ونمرر الكوكيز
   void _injectWebSocketScript(String cookies) {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
         var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
           headers: {
-            'Cookie': '$cookies', // 519. نمرر الكوكيز
-            'User-Agent': 'Quotex/1.0'
+            'Cookie': '$cookies',
+            'User-Agent': 'Quotex/1.0',
+            'Authorization': 'Bearer ${_extractToken(cookies)}' // 528. نضيف التوكن
           }
         });
         socket.onopen = function() {
@@ -255,6 +273,12 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       })();
     """;
     _controller.runJavaScript(jsScript);
+  }
+
+  // 529. نستخرج التوكن من الكوكيز
+  String _extractToken(String cookies) {
+    final match = RegExp(r'qtx_session_cookie=([^;]+)').firstMatch(cookies);
+    return match?.group(1) ?? '';
   }
 
   @override
