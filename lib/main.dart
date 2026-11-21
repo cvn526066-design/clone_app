@@ -842,3 +842,31 @@ class StarPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
+
+// ==========================================
+// 512. شاشة الشارت (اللي كانت ناقصة)
+// ==========================================
+class ChartScreen extends StatefulWidget {
+  final bool isDemo;
+  const ChartScreen({Key? key, required this.isDemo}) : super(key: key);
+  @override
+  State<ChartScreen> createState() => _ChartScreenState();
+}
+
+class _ChartScreenState extends State<ChartScreen> {
+  late WebViewController _controller;
+  @override
+  void initState() {
+    super.initState();
+    String url = widget.isDemo ? 'https://quotex.com/ar/demo-trade' : 'https://quotex.com/ar/trade';
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent("Quotex/1.0")
+      ..loadRequest(Uri.parse(url));
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('الشارت المباشر'), backgroundColor: const Color(0xFF0E0E14)),
+    body: SafeArea(child: WebViewWidget(controller: _controller)),
+  );
+}
