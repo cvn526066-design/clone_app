@@ -72,7 +72,7 @@ class _RootNavigationState extends State<RootNavigation> {
 }
 
 // ==========================================
-// 2. شاشة تسجيل الدخول (WebView ظاهر)
+// 2. شاشة تسجيل الدخول
 // ==========================================
 class LoginScreen extends StatefulWidget {
   final Function(String) onCookiesReady;
@@ -114,7 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ==========================================
-// 3. الثيم العام والألوان
+// 3. الثيم والألوان
 // ==========================================
 class AppColors {
   static const Color bgMain = Color(0xFF030305);
@@ -177,7 +177,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 514. WebView مخفي يفتح بالكوكيز
+  // 516. WebView مخفي يفتح بالكوكيز
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -188,6 +188,8 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
           var data = jsonDecode(msg.message);
           if (data['type'] == 'connected') {
             setState(() => isConnected = true);
+          } else if (data['type'] == 'disconnected') {
+            setState(() => isConnected = false); // لو انفصل الاتصال
           } else if (data['type'] == 'pairs') {
             setState(() {
               _exchangePairs = List<String>.from(data['exchange']);
@@ -203,23 +205,35 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            _injectWebSocketScript();
+            _injectWebSocketScript(widget.cookies); // 517. نمرر الكوكيز
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
   }
 
-  void _injectWebSocketScript() {
+  // 518. نحقن سكربت WebSocket ونمرر الكوكيز
+  void _injectWebSocketScript(String cookies) {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
+          headers: {
+            'Cookie': '$cookies', // 519. نمرر الكوكيز
+            'User-Agent': 'Quotex/1.0'
+          }
+        });
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
           socket.send('42["balance/list"]');
           socket.send('42["quotes/stream"]');
+        };
+        socket.onclose = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
+        };
+        socket.onerror = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
         };
         socket.onmessage = function(event) {
           var msg = event.data;
@@ -325,7 +339,9 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   }
 }
 
+// ==========================================
 // 5. شاشة الشارت
+// ==========================================
 class ChartScreen extends StatefulWidget {
   final bool isDemo;
   const ChartScreen({Key? key, required this.isDemo}) : super(key: key);
@@ -349,7 +365,7 @@ class _ChartScreenState extends State<ChartScreen> {
 }
 
 // ==========================================
-// 6. الـ Widgets (نفس التصميم الكامل)
+// 6. الـ Widgets (التصميم الفخم)
 // ==========================================
 class TopHeaderWidget extends StatelessWidget {
   final String currentTime;
