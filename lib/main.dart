@@ -27,105 +27,16 @@ class MyApp extends StatelessWidget {
           error: Color(0xFFFF1744),
         ),
       ),
-      home: const RootNavigation(),
+      home: const MainTradingScreen(),
     );
   }
 }
 
-// 1. الشريط السفلي
-class RootNavigation extends StatefulWidget {
-  const RootNavigation({super.key});
-  @override
-  State<RootNavigation> createState() => _RootNavigationState();
-}
-
-class _RootNavigationState extends State<RootNavigation> {
-  int _currentIndex = 0;
-  String _cookies = "";
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: _currentIndex == 0 
-          ? LoginScreen(onCookiesReady: (cookies) {
-              setState(() {
-                _cookies = cookies;
-                _currentIndex = 1;
-              });
-            }) 
-          : MainTradingScreen(cookies: _cookies),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF0E0E14),
-        selectedItemColor: const Color(0xFFFFD700),
-        unselectedItemColor: const Color(0xFFA0A0B0),
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.login), label: 'تسجيل الدخول'),
-          BottomNavigationBarItem(icon: Icon(Icons.auto_graph), label: 'التداول الآلي'),
-        ],
-      ),
-    );
-  }
-}
-
-// 2. شاشة تسجيل الدخول (واجهة المنصة الحقيقية)
-class LoginScreen extends StatefulWidget {
-  final Function(String) onCookiesReady;
-  const LoginScreen({super.key, required this.onCookiesReady});
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
-  late WebViewController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _requestPermissions();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Quotex/1.0")
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onUrlChange: (UrlChange urlChange) async {
-            if (urlChange.url?.contains('/trade') == true || urlChange.url?.contains('/cabinet') == true) {
-              final cookies = await _controller.runJavaScriptReturningResult("document.cookie");
-              widget.onCookiesReady(cookies.toString());
-            }
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse('https://quotex.com/ar/sign-in'));
-  }
-
-  void _requestPermissions() async {
-    await Permission.location.request();
-    await Permission.notification.request();
-  }
-
-  @override
-  Widget build(BuildContext context) => SafeArea(child: WebViewWidget(controller: _controller));
-}
-
-// 3. الثيم العام
-class AppColors {
-  static const Color bgMain = Color(0xFF030305);
-  static const Color bgCard = Color(0xFF0E0E14);
-  static const Color primary = Color(0xFF00E5FF);
-  static const Color gold = Color(0xFFFFD700);
-  static const Color goldDark = Color(0xFFB8860B);
-  static const Color success = Color(0xFF00E676);
-  static const Color danger = Color(0xFFFF1744);
-  static const Color textMuted = Color(0xFFA0A0B0);
-  static const Color border = Color(0x14FFFFFF);
-}
-
-// 4. شاشة التداول (MainTradingScreen) مع WebView مخفي
+// ==========================================
+// 1. شاشة التداول (تفتح أول شي)
+// ==========================================
 class MainTradingScreen extends StatefulWidget {
-  final String cookies;
-  const MainTradingScreen({Key? key, required this.cookies}) : super(key: key);
+  const MainTradingScreen({super.key});
   @override
   State<MainTradingScreen> createState() => _MainTradingScreenState();
 }
@@ -138,8 +49,18 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   bool isDemoAccount = true;
   bool isRiskManagerActive = false;
   bool isConnected = false;
+  String selectedStrategy = "استراتيجية البريك بلوك";
+  
   List<String> _exchangePairs = [];
   List<String> _otcPairs = [];
+  List<String> _filteredExchangePairs = [];
+  List<String> _filteredOtcPairs = [];
+  String _searchQuery = "";
+
+  // إعدادات البوت
+  int _maxWinStreak = 2;
+  int _maxLossStreak = 3;
+
   final List<String> _athkarList = [
     "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ، سُبْحَانَ اللَّهِ الْعَظِيمِ",
     "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ",
@@ -168,7 +89,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 501. WebView مخفي (بنفس الرابط) وبنمرر الكوكيز
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -183,6 +103,8 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
             setState(() {
               _exchangePairs = List<String>.from(data['exchange']);
               _otcPairs = List<String>.from(data['otc']);
+              _filterExchangePairs();
+              _filterOtcPairs();
             });
           } else if (data['type'] == 'balance') {
             setState(() => demoBalance = double.parse(data['balance'].toString()));
@@ -201,12 +123,17 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
   }
 
-  // 502. سكربت WebSocket
   void _injectWebSocketScript() {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
+        // 504. نضيف البروكسي (هيدر تجريبي، ممكن تغيره ببروكسي حقيقي)
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
+          headers: {
+            'User-Agent': 'Quotex/1.0',
+            'X-Forwarded-For': '1.1.1.1' // بروكسي تجريبي
+          }
+        });
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
@@ -233,6 +160,14 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       })();
     """;
     _controller.runJavaScript(jsScript);
+  }
+
+  void _filterExchangePairs() {
+    _filteredExchangePairs = _exchangePairs.where((p) => p.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+  }
+
+  void _filterOtcPairs() {
+    _filteredOtcPairs = _otcPairs.where((p) => p.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
   }
 
   @override
@@ -266,6 +201,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                   const SizedBox(height: 20),
                   PriceWidget(currentPrice: currentPrice),
                   const SizedBox(height: 20),
+                  // عرض الرصيد
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
@@ -278,13 +214,56 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  PairsDropZoneWidget(exchangePairs: _exchangePairs, otcPairs: _otcPairs),
+                  // 505. البحث
+                  TextField(
+                    onChanged: (val) => setState(() { _searchQuery = val; _filterExchangePairs(); _filterOtcPairs(); }),
+                    decoration: InputDecoration(
+                      hintText: 'بحث عن زوج (مثل: EUR)...',
+                      hintStyle: GoogleFonts.cairo(color: AppColors.textMuted),
+                      prefixIcon: const Icon(Icons.search, color: AppColors.primary),
+                      filled: true, fillColor: AppColors.bgCard,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                    ),
+                  ),
                   const SizedBox(height: 20),
+                  // 506. الأزواج مفلترة
+                  PairsDropZoneWidget(
+                    exchangePairs: _filteredExchangePairs,
+                    otcPairs: _filteredOtcPairs,
+                  ),
+                  const SizedBox(height: 20),
+                  // 507. إعدادات البوت (المضاعفة ووقف الخسارة)
                   SettingsWidget(
                     isRiskActive: isRiskManagerActive,
                     onRiskToggle: (val) => setState(() => isRiskManagerActive = val),
+                    maxWinStreak: _maxWinStreak,
+                    maxLossStreak: _maxLossStreak,
+                    onWinChange: (val) => setState(() => _maxWinStreak = val),
+                    onLossChange: (val) => setState(() => _maxLossStreak = val),
                   ),
                   const SizedBox(height: 20),
+                  // 508. زر الاستراتيجيات
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.gold.withOpacity(0.5))),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('الاستراتيجية:', style: GoogleFonts.cairo(color: AppColors.textMuted)),
+                        DropdownButton<String>(
+                          value: selectedStrategy,
+                          dropdownColor: AppColors.bgCard,
+                          style: GoogleFonts.cairo(color: Colors.white),
+                          items: ['استراتيجية البريك بلوك', 'استراتيجية Golden Dollar', 'نسخ الصفقات'].map((String value) {
+                            return DropdownMenuItem<String>(value: value, child: Text(value));
+                          }).toList(),
+                          onChanged: (newValue) => setState(() => selectedStrategy = newValue!),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // 509. أزرار البدء
                   ActionButtonsWidget(
                     onStart: () {
                       _controller.runJavaScript('window.__qtxSocket.send(\'42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]\')');
@@ -317,30 +296,549 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   }
 }
 
-// 5. شاشة الشارت
-class ChartScreen extends StatefulWidget {
-  final bool isDemo;
-  const ChartScreen({Key? key, required this.isDemo}) : super(key: key);
-  @override
-  State<ChartScreen> createState() => _ChartScreenState();
+// ==========================================
+// 2. باقي الـ Widgets (نفس تصميم صاحبك)
+// ==========================================
+class AppColors {
+  static const Color bgMain = Color(0xFF030305);
+  static const Color bgCard = Color(0xFF0E0E14);
+  static const Color primary = Color(0xFF00E5FF);
+  static const Color gold = Color(0xFFFFD700);
+  static const Color goldDark = Color(0xFFB8860B);
+  static const Color success = Color(0xFF00E676);
+  static const Color danger = Color(0xFFFF1744);
+  static const Color textMuted = Color(0xFFA0A0B0);
+  static const Color border = Color(0x14FFFFFF);
 }
 
-class _ChartScreenState extends State<ChartScreen> {
-  late WebViewController _controller;
+class TopHeaderWidget extends StatelessWidget {
+  final String currentTime;
+  final bool isConnected;
+  const TopHeaderWidget({Key? key, required this.currentTime, required this.isConnected}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.menu, color: AppColors.textMuted),
+            const SizedBox(width: 10),
+            Text("التحكم الآلي", style: GoogleFonts.cairo(color: AppColors.gold, fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: AppColors.gold, borderRadius: BorderRadius.circular(4)),
+              child: Text("PRO", style: GoogleFonts.cairo(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            Text(currentTime, style: TextStyle(fontFamily: 'monospace', color: AppColors.primary, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: isConnected ? AppColors.success : AppColors.danger,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(isConnected ? Icons.check_circle : Icons.error, color: Colors.white, size: 16),
+                  const SizedBox(width: 5),
+                  Text(isConnected ? "متصل" : "غير متصل", style: GoogleFonts.cairo(fontSize: 12, color: Colors.white)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class AthkarCardWidget extends StatelessWidget {
+  final String athkarText;
+  const AthkarCardWidget({Key? key, required this.athkarText}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+      decoration: BoxDecoration(
+        color: AppColors.bgCard.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.gold.withOpacity(0.2)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20, offset: const Offset(0, 10))],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.hourglass_bottom, color: AppColors.danger, size: 30),
+              const SizedBox(width: 15),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+                decoration: BoxDecoration(border: Border.all(color: AppColors.gold), borderRadius: BorderRadius.circular(8)),
+                child: Text("لا إله إلا الله", style: GoogleFonts.cairo(color: AppColors.gold, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 600),
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              return FadeTransition(opacity: animation, child: SlideTransition(position: Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(animation), child: child));
+            },
+            child: Text(athkarText, key: ValueKey<String>(athkarText), textAlign: TextAlign.center, style: GoogleFonts.cairo(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white, height: 1.5)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AccountToggleWidget extends StatelessWidget {
+  final bool isDemo;
+  final ValueChanged<bool> onToggle;
+  const AccountToggleWidget({Key? key, required this.isDemo, required this.onToggle}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => onToggle(true),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(color: isDemo ? AppColors.gold : Colors.transparent, borderRadius: BorderRadius.circular(12)),
+                child: Center(child: Text("حساب Demo", style: GoogleFonts.cairo(color: isDemo ? Colors.black : AppColors.textMuted, fontWeight: FontWeight.bold))),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => onToggle(false),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(color: !isDemo ? AppColors.gold : Colors.transparent, borderRadius: BorderRadius.circular(12)),
+                child: Center(child: Text("حساب Real", style: GoogleFonts.cairo(color: !isDemo ? Colors.black : AppColors.textMuted, fontWeight: FontWeight.bold))),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PriceWidget extends StatelessWidget {
+  final String currentPrice;
+  const PriceWidget({Key? key, required this.currentPrice}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("السعر الحالي (EUR/USD)", style: GoogleFonts.cairo(color: AppColors.textMuted)),
+              Text(currentPrice, style: GoogleFonts.cairo(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.gold)),
+            ],
+          ),
+          const SizedBox(height: 15),
+          Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("شراء 75%", style: GoogleFonts.cairo(color: AppColors.success, fontSize: 12)),
+                  Text("بيع 25%", style: GoogleFonts.cairo(color: AppColors.danger, fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 5),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(value: 0.75, minHeight: 8, backgroundColor: AppColors.danger, valueColor: const AlwaysStoppedAnimation<Color>(AppColors.success)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PairsDropZoneWidget extends StatelessWidget {
+  final List<String> exchangePairs;
+  final List<String> otcPairs;
+  const PairsDropZoneWidget({Key? key, required this.exchangePairs, required this.otcPairs}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(20), border: Border.all(color: AppColors.border)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("الأزواج المتاحة", style: GoogleFonts.cairo(color: AppColors.primary, fontWeight: FontWeight.bold)),
+              const Icon(Icons.layers, color: AppColors.primary, size: 20),
+            ],
+          ),
+          const SizedBox(height: 15),
+          // بورصة
+          if (exchangePairs.isNotEmpty) ...[
+            Text('بورصة:', style: GoogleFonts.cairo(color: AppColors.textMuted, fontSize: 12)),
+            Wrap(
+              spacing: 8, runSpacing: 8,
+              children: exchangePairs.map((pair) => Chip(label: Text(pair, style: const TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF1E1E24))).toList(),
+            ),
+            const SizedBox(height: 10),
+          ],
+          // OTC
+          if (otcPairs.isNotEmpty) ...[
+            Text('OTC:', style: GoogleFonts.cairo(color: AppColors.textMuted, fontSize: 12)),
+            Wrap(
+              spacing: 8, runSpacing: 8,
+              children: otcPairs.map((pair) => Chip(label: Text(pair, style: const TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF1E1E24))).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class SettingsWidget extends StatelessWidget {
+  final bool isRiskActive;
+  final ValueChanged<bool> onRiskToggle;
+  final int maxWinStreak;
+  final int maxLossStreak;
+  final ValueChanged<int> onWinChange;
+  final ValueChanged<int> onLossChange;
+
+  const SettingsWidget({
+    Key? key,
+    required this.isRiskActive,
+    required this.onRiskToggle,
+    required this.maxWinStreak,
+    required this.maxLossStreak,
+    required this.onWinChange,
+    required this.onLossChange,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(20), border: Border.all(color: AppColors.border)),
+      child: Column(
+        children: [
+          // إدارة المخاطر
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.primary.withOpacity(0.2))),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.shield, color: AppColors.primary, size: 18),
+                        const SizedBox(width: 8),
+                        Text("إدارة المخاطر الذكية", style: GoogleFonts.cairo(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
+                    Switch(value: isRiskActive, onChanged: onRiskToggle, activeColor: AppColors.success),
+                  ],
+                ),
+                AnimatedCrossFade(
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: Row(
+                    children: [
+                      Expanded(child: _buildTextField("رأس المال (\\\$)", "1000")),
+                      const SizedBox(width: 10),
+                      Expanded(child: _buildTextField("نسبة المخاطرة (%)", "1")),
+                    ],
+                  ),
+                  crossFadeState: isRiskActive ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 300),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 15),
+          _buildSettingRow("مبلغ الصفقة الأساسي (\\\$)", "10", enabled: !isRiskActive),
+          const SizedBox(height: 15),
+          // 510. إعدادات وقف الخسارة والربح
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("وقف الربح (عدد الصفقات)", style: GoogleFonts.cairo(color: AppColors.textMuted)),
+              SizedBox(width: 80, child: _buildTextField("", maxWinStreak.toString(), onChanged: (val) => onWinChange(int.tryParse(val) ?? 2))),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("وقف الخسارة (عدد الصفقات)", style: GoogleFonts.cairo(color: AppColors.textMuted)),
+              SizedBox(width: 80, child: _buildTextField("", maxLossStreak.toString(), onChanged: (val) => onLossChange(int.tryParse(val) ?? 3))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextField(String label, String value, {bool enabled = true, Function(String)? onChanged}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (label.isNotEmpty) Text(label, style: GoogleFonts.cairo(color: AppColors.textMuted, fontSize: 12)),
+        const SizedBox(height: 5),
+        TextField(
+          enabled: enabled,
+          controller: TextEditingController(text: value),
+          onChanged: onChanged,
+          style: GoogleFonts.cairo(color: enabled ? Colors.white : AppColors.textMuted),
+          decoration: InputDecoration(
+            filled: true, fillColor: Colors.black,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: enabled ? AppColors.border : Colors.transparent)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: enabled ? AppColors.border : Colors.transparent)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSettingRow(String label, String value, {bool enabled = true}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: GoogleFonts.cairo(color: AppColors.textMuted)),
+        SizedBox(width: 100, child: _buildTextField("", value, enabled: enabled)),
+      ],
+    );
+  }
+}
+
+class ActionButtonsWidget extends StatelessWidget {
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+  final VoidCallback onOpenChart;
+  const ActionButtonsWidget({Key? key, required this.onStart, required this.onStop, required this.onOpenChart}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity, height: 55,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 5),
+            onPressed: onStart,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.rocket_launch, color: Colors.black),
+                const SizedBox(width: 10),
+                Text("بدء التداول السريع", style: GoogleFonts.cairo(color: Colors.black, fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity, height: 55,
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger, width: 2), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+            onPressed: onStop,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.stop_circle, color: AppColors.danger),
+                const SizedBox(width: 10),
+                Text("إيقاف التداول", style: GoogleFonts.cairo(color: AppColors.danger, fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity, height: 55,
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.primary, width: 2), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+            onPressed: onOpenChart,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.show_chart, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Text("فتح الشارت المباشر", style: GoogleFonts.cairo(color: AppColors.primary, fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class TradeHistoryWidget extends StatelessWidget {
+  const TradeHistoryWidget({Key? key}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(20), border: Border.all(color: AppColors.border)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("سجل الصفقات الأخيرة", style: GoogleFonts.cairo(color: AppColors.textMuted, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 15),
+          Center(child: Text("لا توجد صفقات حتى الآن", style: GoogleFonts.cairo(color: AppColors.textMuted))),
+        ],
+      ),
+    );
+  }
+}
+
+class CountdownDialog extends StatefulWidget {
+  const CountdownDialog({Key? key}) : super(key: key);
+  @override
+  State<CountdownDialog> createState() => _CountdownDialogState();
+}
+
+class _CountdownDialogState extends State<CountdownDialog> {
+  int seconds = 5;
+  Timer? _timer;
   @override
   void initState() {
     super.initState();
-    String url = widget.isDemo ? 'https://quotex.com/ar/demo-trade' : 'https://quotex.com/ar/trade';
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Quotex/1.0")
-      ..loadRequest(Uri.parse(url));
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (seconds > 0) {
+        setState(() => seconds--);
+      } else {
+        _timer?.cancel();
+        Navigator.pop(context);
+      }
+    });
   }
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('الشارت المباشر')), body: SafeArea(child: WebViewWidget(controller: _controller)));
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppColors.bgCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: const BorderSide(color: AppColors.gold)),
+      child: Padding(
+        padding: const EdgeInsets.all(30.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("جاري تحضير الصفقة", style: GoogleFonts.cairo(color: AppColors.gold, fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 30),
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(width: 120, height: 120, child: CircularProgressIndicator(value: seconds / 5, strokeWidth: 8, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation<Color>(AppColors.danger))),
+                Text("$seconds", style: GoogleFonts.cairo(fontSize: 50, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 30),
+            Text("سيتم الدخول تلقائياً في الوقت المحدد", style: GoogleFonts.cairo(color: AppColors.textMuted)),
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: () {
+                _timer?.cancel();
+                Navigator.pop(context);
+              },
+              child: Text("إلغاء الأمر", style: GoogleFonts.cairo(color: AppColors.danger, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// ==========================================
-// 6. الـ Widgets (التصميم الفخم)
-// ==========================================
-// (باقي الـ Widgets موجودة بنفس الكود السابق، ما رح أعيدها عشان ما يكون الرد طويل، بس إنت بتعرف إنها كاملة).
+class StarfieldBackground extends StatefulWidget {
+  const StarfieldBackground({Key? key}) : super(key: key);
+  @override
+  State<StarfieldBackground> createState() => _StarfieldBackgroundState();
+}
+
+class _StarfieldBackgroundState extends State<StarfieldBackground> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  final List<Star> _stars = [];
+  final Random _random = Random();
+
+  @override
+  void initState() {
+    super.initState();
+    for (int i = 0; i < 50; i++) {
+      _stars.add(Star(x: _random.nextDouble(), y: _random.nextDouble(), size: _random.nextDouble() * 2 + 1, speed: _random.nextDouble() * 0.5 + 0.1));
+    }
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 10))..repeat();
+    _controller.addListener(() {
+      setState(() {
+        for (var star in _stars) {
+          star.y -= star.speed * 0.005;
+          if (star.y < 0) {
+            star.y = 1.0;
+            star.x = _random.nextDouble();
+          }
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(color: AppColors.bgMain, child: CustomPaint(painter: StarPainter(stars: _stars), size: Size.infinite));
+  }
+}
+
+class Star {
+  double x;
+  double y;
+  final double size;
+  final double speed;
+  Star({required this.x, required this.y, required this.size, required this.speed});
+}
+
+class StarPainter extends CustomPainter {
+  final List<Star> stars;
+  StarPainter({required this.stars});
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = Colors.white.withOpacity(0.5);
+    for (var star in stars) {
+      canvas.drawCircle(Offset(star.x * size.width, star.y * size.height), star.size, paint);
+    }
+  }
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
