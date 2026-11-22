@@ -32,9 +32,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ==========================================
-// 1. الشريط السفلي (RootNavigation)
-// ==========================================
+// 1. الشريط السفلي
 class RootNavigation extends StatefulWidget {
   const RootNavigation({super.key});
   @override
@@ -71,9 +69,7 @@ class _RootNavigationState extends State<RootNavigation> {
   }
 }
 
-// ==========================================
 // 2. شاشة تسجيل الدخول
-// ==========================================
 class LoginScreen extends StatefulWidget {
   final Function(String) onCookiesReady;
   const LoginScreen({super.key, required this.onCookiesReady});
@@ -113,9 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) => SafeArea(child: WebViewWidget(controller: _controller));
 }
 
-// ==========================================
 // 3. الثيم والألوان
-// ==========================================
 class AppColors {
   static const Color bgMain = Color(0xFF030305);
   static const Color bgCard = Color(0xFF0E0E14);
@@ -127,9 +121,7 @@ class AppColors {
   static const Color border = Color(0x14FFFFFF);
 }
 
-// ==========================================
 // 4. الشاشة الرئيسية
-// ==========================================
 class MainTradingScreen extends StatefulWidget {
   final String cookies;
   const MainTradingScreen({Key? key, required this.cookies}) : super(key: key);
@@ -177,7 +169,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 534. WebView مخفي، بس هالمرة بنحقن الكوكيز
+  // 537. WebView مخفي مع إشعارات
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -185,6 +177,12 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..addJavaScriptChannel(
         'QTX_DATA',
         onMessageReceived: (msg) {
+          print("JAVASCRIPT MESSAGE: ${msg.message}");
+          // 538. إشعارات على الشاشة
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("رسالة من JS: ${msg.message}"), backgroundColor: Colors.blue),
+          );
+          
           var data = jsonDecode(msg.message);
           if (data['type'] == 'connected') {
             setState(() => isConnected = true);
@@ -205,7 +203,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            // 535. نحقن الكوكيز بعد ما تحمل الصفحة
             _injectCookies(widget.cookies);
             _injectWebSocketScript(widget.cookies);
           },
@@ -227,6 +224,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
+        // 539. نمرر الكوكيز كـ Header (بس الـ WebSocket ما بيدعمها كلها، عشان هيك بنمررها كـ Query أو Cookie)
         var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
           headers: {
             'Cookie': '$cookies',
@@ -349,9 +347,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   }
 }
 
-// ==========================================
 // 5. شاشة الشارت
-// ==========================================
 class ChartScreen extends StatefulWidget {
   final bool isDemo;
   const ChartScreen({Key? key, required this.isDemo}) : super(key: key);
@@ -374,9 +370,7 @@ class _ChartScreenState extends State<ChartScreen> {
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('الشارت المباشر')), body: SafeArea(child: WebViewWidget(controller: _controller)));
 }
 
-// ==========================================
 // 6. الـ Widgets (التصميم الفخم)
-// ==========================================
 class TopHeaderWidget extends StatelessWidget {
   final String currentTime;
   final bool isConnected;
