@@ -169,7 +169,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 537. WebView مخفي مع إشعارات
+  // 541. WebView مخفي
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -178,7 +178,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
         'QTX_DATA',
         onMessageReceived: (msg) {
           print("JAVASCRIPT MESSAGE: ${msg.message}");
-          // 538. إشعارات على الشاشة
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("رسالة من JS: ${msg.message}"), backgroundColor: Colors.blue),
           );
@@ -220,17 +219,13 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     _controller.runJavaScript(jsScript);
   }
 
+  // 542. نمرر الكوكيز في الـ Query String
   void _injectWebSocketScript(String cookies) {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        // 539. نمرر الكوكيز كـ Header (بس الـ WebSocket ما بيدعمها كلها، عشان هيك بنمررها كـ Query أو Cookie)
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
-          headers: {
-            'Cookie': '$cookies',
-            'User-Agent': 'Quotex/1.0'
-          }
-        });
+        // 543. نمرر الكوكيز في الرابط
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket&cookie=' + encodeURIComponent('$cookies'));
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
