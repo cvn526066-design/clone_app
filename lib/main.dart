@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_cookie_manager/webview_cookie_manager.dart';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 
