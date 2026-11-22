@@ -4,27 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'dart:convert';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // 527. تهيئة الخدمة الخلفية (نفس صاحبك)
-  FlutterForegroundTask.init(
-    androidNotificationOptions: AndroidNotificationOptions(
-      channelId: 'foreground_service',
-      channelName: 'Foreground Service',
-      channelImportance: NotificationChannelImportance.LOW,
-    ),
-    iosNotificationOptions: const IOSNotificationOptions(),
-    foregroundTaskOptions: ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.repeat(5000),
-      autoRunOnBoot: true,
-    ),
-  );
-  runApp(const MyApp());
-}
+void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -125,7 +107,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void _requestPermissions() async {
     await Permission.location.request();
     await Permission.notification.request();
-    await FlutterForegroundTask.requestIgnoreBatteryOptimization();
   }
 
   @override
@@ -196,6 +177,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
+  // 534. WebView مخفي، بس هالمرة بنحقن الكوكيز
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -223,11 +205,22 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
+            // 535. نحقن الكوكيز بعد ما تحمل الصفحة
+            _injectCookies(widget.cookies);
             _injectWebSocketScript(widget.cookies);
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
+  }
+
+  void _injectCookies(String cookies) {
+    String jsScript = """
+      (function() {
+        document.cookie = "$cookies";
+      })();
+    """;
+    _controller.runJavaScript(jsScript);
   }
 
   void _injectWebSocketScript(String cookies) {
@@ -237,8 +230,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
         var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
           headers: {
             'Cookie': '$cookies',
-            'User-Agent': 'Quotex/1.0',
-            'Authorization': 'Bearer ${_extractToken(cookies)}' // 528. نضيف التوكن
+            'User-Agent': 'Quotex/1.0'
           }
         });
         socket.onopen = function() {
@@ -273,12 +265,6 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       })();
     """;
     _controller.runJavaScript(jsScript);
-  }
-
-  // 529. نستخرج التوكن من الكوكيز
-  String _extractToken(String cookies) {
-    final match = RegExp(r'qtx_session_cookie=([^;]+)').firstMatch(cookies);
-    return match?.group(1) ?? '';
   }
 
   @override
