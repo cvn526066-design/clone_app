@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_cookie_manager/webview_cookie_manager.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 
@@ -131,6 +132,7 @@ class MainTradingScreen extends StatefulWidget {
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
   late WebViewController _controller;
+  final WebViewCookieManager _cookieManager = WebViewCookieManager();
   String currentPrice = "0.00";
   double demoBalance = 0.0;
   double realBalance = 0.0;
@@ -169,7 +171,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 541. WebView مخفي
+  // 554. WebView مخفي مع CookieManager (نفس صاحبك)
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -201,31 +203,24 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) {
-            _injectCookies(widget.cookies);
-            _injectWebSocketScript(widget.cookies);
+          onPageFinished: (url) async {
+            // 555. نحط الكوكيز في CookieManager
+            await _cookieManager.setCookies([
+              Cookie('qtx_session_cookie', widget.cookies)
+            ], origin: 'https://quotex.com');
+            
+            _injectWebSocketScript();
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
   }
 
-  void _injectCookies(String cookies) {
-    String jsScript = """
-      (function() {
-        document.cookie = "$cookies";
-      })();
-    """;
-    _controller.runJavaScript(jsScript);
-  }
-
-  // 542. نمرر الكوكيز في الـ Query String
-  void _injectWebSocketScript(String cookies) {
+  void _injectWebSocketScript() {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        // 543. نمرر الكوكيز في الرابط
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket&cookie=' + encodeURIComponent('$cookies'));
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
@@ -365,7 +360,7 @@ class _ChartScreenState extends State<ChartScreen> {
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('الشارت المباشر')), body: SafeArea(child: WebViewWidget(controller: _controller)));
 }
 
-// 6. الـ Widgets (التصميم الفخم)
+// 6. الـ Widgets (نفس التصميم الكامل)
 class TopHeaderWidget extends StatelessWidget {
   final String currentTime;
   final bool isConnected;
