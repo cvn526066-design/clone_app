@@ -169,7 +169,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 561. WebView مخفي مع تمرير الكوكيز في الهيدر
+  // 563. WebView مخفي + حقن الكوكيز في الصفحة
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -201,7 +201,9 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) {
+          onPageFinished: (url) async {
+            // 564. نحقن الكوكيز جوات الصفحة
+            await _controller.runJavaScript("document.cookie = '${widget.cookies}';");
             _injectWebSocketScript(widget.cookies);
           },
         ),
@@ -213,12 +215,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
-          headers: {
-            'Cookie': '$cookies',
-            'User-Agent': 'Quotex/1.0'
-          }
-        });
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
