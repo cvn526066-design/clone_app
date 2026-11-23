@@ -253,7 +253,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
           }
         });
         socket.onopen = function() {
-          QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
+          QTX_DATA.postMessage(JSON.stringify({type: "connected", cookies: document.cookie}));
           socket.send('42["instruments/list"]');
           socket.send('42["balance/list"]');
           socket.send('42["quotes/stream"]');
