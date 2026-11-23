@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart'; // عشان SystemNavigator
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_cookie_manager/webview_cookie_manager.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'dart:convert';
+import 'dart:io'; // عشان البروكسي
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 576. تفعيل الخلفية (نفس صاحبك)
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'foreground_service',
@@ -149,6 +152,7 @@ class MainTradingScreen extends StatefulWidget {
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
   late WebViewController _controller;
+  final WebViewCookieManager _cookieManager = WebViewCookieManager();
   String currentPrice = "0.00";
   double demoBalance = 0.0;
   double realBalance = 0.0;
@@ -187,7 +191,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 566. نستخدم setInterval عشان نضل نحاول (نفس صاحبك)
+  // 577. نحقن الكوكيز في CookieManager (نفس صاحبك)
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -219,64 +223,67 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) {
-            // 567. نحقن الكوكيز والسكربت مع setInterval
-            _controller.runJavaScript("""
-              (function() {
-                // نحقن الكوكيز
-                document.cookie = '${widget.cookies}';
-                
-                // نضل نحاول كل ثانية لحد ما يتصل
-                var tries = 0;
-                var timer = setInterval(function() {
-                  tries++;
-                  if (window.__qtxSocket && window.__qtxSocket.readyState === WebSocket.OPEN) {
-                    clearInterval(timer);
-                    return;
-                  }
-                  if (tries > 30) {
-                    clearInterval(timer);
-                    return;
-                  }
-                  try {
-                    var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
-                    socket.onopen = function() {
-                      QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
-                      socket.send('42["instruments/list"]');
-                      socket.send('42["balance/list"]');
-                      socket.send('42["quotes/stream"]');
-                    };
-                    socket.onclose = function() {
-                      QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
-                    };
-                    socket.onerror = function() {
-                      QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
-                    };
-                    socket.onmessage = function(event) {
-                      var msg = event.data;
-                      if (msg.includes('instruments/update')) {
-                        var data = JSON.parse(msg.substring(2));
-                        var pairs = data[1].instruments.map(i => i.name);
-                        var exchange = pairs.filter(p => !p.includes('_otc'));
-                        var otc = pairs.filter(p => p.includes('_otc'));
-                        QTX_DATA.postMessage(JSON.stringify({type: 'pairs', exchange: exchange, otc: otc}));
-                      } else if (msg.includes('balance/list')) {
-                        var data = JSON.parse(msg.substring(2));
-                        QTX_DATA.postMessage(JSON.stringify({type: 'balance', balance: data[1].balance}));
-                      } else if (msg.includes('quotes/stream')) {
-                        var data = JSON.parse(msg.substring(2));
-                        QTX_DATA.postMessage(JSON.stringify({type: 'price', price: data[1].price}));
-                      }
-                    };
-                    window.__qtxSocket = socket;
-                  } catch (e) {}
-                }, 1000);
-              })();
-            """);
+          onPageFinished: (url) async {
+            // 578. نحقن الكوكيز في CookieManager (اللي هو CookieManager.instance)
+            await _cookieManager.setCookies([
+              Cookie('qtx_session_cookie', widget.cookies)
+            ], origin: 'https://quotex.com');
+            
+            _injectWebSocketScript(widget.cookies);
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
+  }
+
+  void _injectWebSocketScript(String cookies) {
+    String jsScript = """
+      (function() {
+        if (window.__qtxSocket) return;
+        // 579. نستخرج التوكن من الكوكيز ونمرره في الهيدر
+        var token = '';
+        var match = document.cookie.match(/qtx_session_cookie=([^;]+)/);
+        if (match) token = match[1];
+        
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
+          headers: {
+            'Cookie': document.cookie,
+            'User-Agent': 'Quotex/1.0',
+            'Authorization': 'Bearer ' + token // 580. نمرر التوكن
+          }
+        });
+        socket.onopen = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
+          socket.send('42["instruments/list"]');
+          socket.send('42["balance/list"]');
+          socket.send('42["quotes/stream"]');
+        };
+        socket.onclose = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
+        };
+        socket.onerror = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
+        };
+        socket.onmessage = function(event) {
+          var msg = event.data;
+          if (msg.includes('instruments/update')) {
+            var data = JSON.parse(msg.substring(2));
+            var pairs = data[1].instruments.map(i => i.name);
+            var exchange = pairs.filter(p => !p.includes('_otc'));
+            var otc = pairs.filter(p => p.includes('_otc'));
+            QTX_DATA.postMessage(JSON.stringify({type: 'pairs', exchange: exchange, otc: otc}));
+          } else if (msg.includes('balance/list')) {
+            var data = JSON.parse(msg.substring(2));
+            QTX_DATA.postMessage(JSON.stringify({type: 'balance', balance: data[1].balance}));
+          } else if (msg.includes('quotes/stream')) {
+            var data = JSON.parse(msg.substring(2));
+            QTX_DATA.postMessage(JSON.stringify({type: 'price', price: data[1].price}));
+          }
+        };
+        window.__qtxSocket = socket;
+      })();
+    """;
+    _controller.runJavaScript(jsScript);
   }
 
   @override
