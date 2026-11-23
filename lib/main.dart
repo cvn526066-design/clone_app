@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 
@@ -132,7 +131,6 @@ class MainTradingScreen extends StatefulWidget {
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
   late WebViewController _controller;
-  final WebViewCookieManager _cookieManager = WebViewCookieManager();
   String currentPrice = "0.00";
   double demoBalance = 0.0;
   double realBalance = 0.0;
@@ -171,7 +169,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 554. WebView مخفي مع CookieManager (نفس صاحبك)
+  // 561. WebView مخفي مع تمرير الكوكيز في الهيدر
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -203,24 +201,24 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (url) async {
-            // 555. نحط الكوكيز في CookieManager
-            await _cookieManager.setCookies([
-              Cookie('qtx_session_cookie', widget.cookies)
-            ], origin: 'https://quotex.com');
-            
-            _injectWebSocketScript();
+          onPageFinished: (url) {
+            _injectWebSocketScript(widget.cookies);
           },
         ),
       )
       ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
   }
 
-  void _injectWebSocketScript() {
+  void _injectWebSocketScript(String cookies) {
     String jsScript = """
       (function() {
         if (window.__qtxSocket) return;
-        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket', [], {
+          headers: {
+            'Cookie': '$cookies',
+            'User-Agent': 'Quotex/1.0'
+          }
+        });
         socket.onopen = function() {
           QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
           socket.send('42["instruments/list"]');
