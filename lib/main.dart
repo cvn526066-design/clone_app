@@ -6,7 +6,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:convert';
 
 void main() async {
@@ -149,7 +148,7 @@ class MainTradingScreen extends StatefulWidget {
 }
 
 class _MainTradingScreenState extends State<MainTradingScreen> {
-  late IO.Socket _socket;
+  late WebViewController _controller;
   String currentPrice = "0.00";
   double demoBalance = 0.0;
   double realBalance = 0.0;
@@ -172,7 +171,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
   @override
   void initState() {
     super.initState();
-    _initSocket();
+    _initWebView();
     _startTimers();
   }
 
@@ -188,61 +187,90 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 591. نستخدم Socket.io ونمرر التوكن في الـ Auth (نفس صاحبك)
-  void _initSocket() {
-    // نستخرج التوكن من الكوكيز
-    String token = "";
-    final match = RegExp(r'qtx_session_cookie=([^;]+)').firstMatch(widget.cookies);
-    if (match != null) token = match.group(1) ?? "";
+  // 594. نحقن الكوكيز في الصفحة
+  void _initWebView() {
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent("Quotex/1.0")
+      ..addJavaScriptChannel(
+        'QTX_DATA',
+        onMessageReceived: (msg) {
+          print("JAVASCRIPT MESSAGE: ${msg.message}");
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("رسالة من JS: ${msg.message}"), backgroundColor: Colors.blue),
+          );
+          
+          var data = jsonDecode(msg.message);
+          if (data['type'] == 'connected') {
+            setState(() => isConnected = true);
+          } else if (data['type'] == 'disconnected') {
+            setState(() => isConnected = false);
+          } else if (data['type'] == 'pairs') {
+            setState(() {
+              _exchangePairs = List<String>.from(data['exchange']);
+              _otcPairs = List<String>.from(data['otc']);
+            });
+          } else if (data['type'] == 'balance') {
+            setState(() => demoBalance = double.parse(data['balance'].toString()));
+          } else if (data['type'] == 'price') {
+            setState(() => currentPrice = data['price'].toStringAsFixed(5));
+          }
+        },
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (url) async {
+            // 595. نحقن الكوكيز في الصفحة
+            await _controller.runJavaScript("document.cookie = '${widget.cookies}';");
+            _injectWebSocketScript(widget.cookies);
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('https://quotex.com/ar/demo-trade'));
+  }
 
-    _socket = IO.io('https://ws2.quotex.com', <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': true,
-      'path': '/socket.io/',
-      'query': {'EIO': '4', 'transport': 'websocket'},
-      'auth': {
-        'token': token, // 592. نمرر التوكن في الـ Auth
-      }
-    });
-
-    _socket.onConnect((_) {
-      setState(() => isConnected = true);
-      _socket.emit('42["instruments/list"]');
-      _socket.emit('42["balance/list"]');
-      _socket.emit('42["quotes/stream"]');
-    });
-
-    _socket.onDisconnect((_) {
-      setState(() => isConnected = false);
-    });
-
-    _socket.on('instruments/update', (data) {
-      if (data['instruments'] != null) {
-        List<String> allPairs = List<String>.from(data['instruments'].map((i) => i['name'] ?? 'Unknown'));
-        setState(() {
-          _exchangePairs = allPairs.where((p) => !p.contains('_otc')).toList();
-          _otcPairs = allPairs.where((p) => p.contains('_otc')).toList();
-        });
-      }
-    });
-
-    _socket.on('balance/list', (data) {
-      if (data['balance'] != null) {
-        setState(() => demoBalance = double.parse(data['balance'].toString()));
-      }
-    });
-
-    _socket.on('quotes/stream', (data) {
-      if (data['price'] != null) {
-        setState(() => currentPrice = data['price'].toStringAsFixed(5));
-      }
-    });
+  void _injectWebSocketScript(String cookies) {
+    String jsScript = """
+      (function() {
+        if (window.__qtxSocket) return;
+        var socket = new WebSocket('wss://ws2.quotex.com/socket.io/?EIO=4&transport=websocket');
+        socket.onopen = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'connected'}));
+          socket.send('42["instruments/list"]');
+          socket.send('42["balance/list"]');
+          socket.send('42["quotes/stream"]');
+        };
+        socket.onclose = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
+        };
+        socket.onerror = function() {
+          QTX_DATA.postMessage(JSON.stringify({type: 'disconnected'}));
+        };
+        socket.onmessage = function(event) {
+          var msg = event.data;
+          if (msg.includes('instruments/update')) {
+            var data = JSON.parse(msg.substring(2));
+            var pairs = data[1].instruments.map(i => i.name);
+            var exchange = pairs.filter(p => !p.includes('_otc'));
+            var otc = pairs.filter(p => p.includes('_otc'));
+            QTX_DATA.postMessage(JSON.stringify({type: 'pairs', exchange: exchange, otc: otc}));
+          } else if (msg.includes('balance/list')) {
+            var data = JSON.parse(msg.substring(2));
+            QTX_DATA.postMessage(JSON.stringify({type: 'balance', balance: data[1].balance}));
+          } else if (msg.includes('quotes/stream')) {
+            var data = JSON.parse(msg.substring(2));
+            QTX_DATA.postMessage(JSON.stringify({type: 'price', price: data[1].price}));
+          }
+        };
+        window.__qtxSocket = socket;
+      })();
+    """;
+    _controller.runJavaScript(jsScript);
   }
 
   @override
   void dispose() {
     _athkarTimer?.cancel();
-    _socket.dispose();
     super.dispose();
   }
 
@@ -252,6 +280,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       backgroundColor: AppColors.bgMain,
       body: Stack(
         children: [
+          Opacity(opacity: 0.0, child: SizedBox(width: 1, height: 1, child: WebViewWidget(controller: _controller))),
           const StarfieldBackground(),
           SafeArea(
             child: SingleChildScrollView(
@@ -291,11 +320,11 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
                   const SizedBox(height: 20),
                   ActionButtonsWidget(
                     onStart: () {
-                      _socket.emit('42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]');
+                      _controller.runJavaScript('window.__qtxSocket.send(\'42["orders/open", {"asset":"EURUSD","amount":10,"direction":"up","duration":60}]\')');
                       _showCountdownDialog(context);
                     },
                     onStop: () {
-                      _socket.emit('42["orders/close"]');
+                      _controller.runJavaScript('window.__qtxSocket.send(\'42["orders/close"]\')');
                     },
                     onOpenChart: () {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => ChartScreen(isDemo: isDemoAccount)));
