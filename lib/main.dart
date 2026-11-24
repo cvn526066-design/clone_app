@@ -187,7 +187,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
     });
   }
 
-  // 597. WebView مخفي + حقن الكوكيز في الصفحة
+  // 600. نحقن الكوكيز في الصفحة
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -220,7 +220,7 @@ class _MainTradingScreenState extends State<MainTradingScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) async {
-            // 598. نحقن الكوكيز جوات الصفحة
+            // 601. نحقن الكوكيز في الصفحة
             await _controller.runJavaScript("document.cookie = '${widget.cookies}';");
             _injectWebSocketScript(widget.cookies);
           },
